@@ -7,6 +7,8 @@ from app.repositories.api_cache_repository import count_cache_entries
 from app.repositories.football_repository import (
     count_countries,
     count_fixture_events,
+    count_fixture_lineup_players,
+    count_fixture_lineups,
     count_fixture_statistics,
     count_fixtures,
     count_league_seasons,
@@ -15,11 +17,14 @@ from app.repositories.football_repository import (
     count_teams,
     get_fixture_by_id,
     get_fixture_event_by_id,
+    get_fixture_lineup_by_id,
     get_fixture_statistics_as_comparison,
     get_league_by_id,
     get_standing_by_id,
     list_all_countries,
     list_fixture_events_by_fixture_id,
+    list_fixture_lineup_players,
+    list_fixture_lineups_by_fixture_id,
     list_fixture_teams_filter,
     list_fixtures_filtered,
     list_league_seasons_by_league_id,
@@ -30,6 +35,7 @@ from app.repositories.football_repository import (
 from app.services.sync_service import (
     sync_countries,
     sync_fixture_events,
+    sync_fixture_lineups,
     sync_fixture_statistics,
     sync_fixtures,
     sync_leagues,
@@ -73,6 +79,7 @@ def render_sidebar() -> None:
         st.metric("Matchs", count_fixtures())
         st.metric("Stats matchs", count_fixture_statistics())
         st.metric("Événements", count_fixture_events())
+        st.metric("Compositions", count_fixture_lineups())
         st.metric("Cache API", count_cache_entries())
 
         st.markdown("---")
@@ -165,6 +172,13 @@ def render_admin_page() -> None:
     col2.metric("Matchs stockés", count_fixtures())
     col3.metric("Stats match stockées", count_fixture_statistics())
     col4.metric("Événements stockés", count_fixture_events())
+
+    col5, col6, col7, col8 = st.columns(4)
+
+    col5.metric("Compositions stockées", count_fixture_lineups())
+    col6.metric("Joueurs lineups", count_fixture_lineup_players())
+    col7.metric("Classements", count_standings())
+    col8.metric("Équipes", count_teams())
 
     st.info(
         "Pour l'instant, le cache est fonctionnel mais pas encore administrable "
@@ -277,14 +291,14 @@ def render_metrics() -> None:
     row2_col1.metric("Matchs", count_fixtures())
     row2_col2.metric("Stats matchs", count_fixture_statistics())
     row2_col3.metric("Événements", count_fixture_events())
-    row2_col4.metric("Classements", count_standings())
+    row2_col4.metric("Compositions", count_fixture_lineups())
 
     row3_col1, row3_col2, row3_col3, row3_col4 = st.columns(4)
 
-    row3_col1.metric("Cache API", count_cache_entries())
-    row3_col2.metric("À venir", "Lineups")
-    row3_col3.metric("À venir", "Joueurs")
-    row3_col4.metric("À venir", "Prédictions")
+    row3_col1.metric("Joueurs lineups", count_fixture_lineup_players())
+    row3_col2.metric("Classements", count_standings())
+    row3_col3.metric("Cache API", count_cache_entries())
+    row3_col4.metric("À venir", "Joueurs")
 
 def render_league_explorer() -> None:
     st.subheader("Exploration des ligues")
@@ -735,6 +749,153 @@ def render_fixture_events_section(
                 language="json",
             )
 
+def render_player_list(
+    title: str,
+    players: list[dict],
+) -> None:
+    st.markdown(f"**{title}**")
+
+    if not players:
+        st.info("Aucun joueur trouvé.")
+        return
+
+    rows = []
+
+    for player in players:
+        rows.append(
+            {
+                "N°": player["player_number"],
+                "Joueur": player["player_name"],
+                "Poste": player["player_position"],
+                "Grille": player["player_grid"],
+            }
+        )
+
+    st.dataframe(
+        rows,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+
+def render_fixture_lineups_section(
+    fixture_id: int,
+    status_short: str | None,
+) -> None:
+    st.markdown("### Compositions du match")
+
+    if status_short == "NS":
+        st.info(
+            "Ce match n'a pas encore commencé. "
+            "Les compositions peuvent être indisponibles."
+        )
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button(
+            "Synchroniser les compositions",
+            key=f"sync_fixture_lineups_{fixture_id}",
+        ):
+            try:
+                with st.spinner("Synchronisation des compositions du match..."):
+                    result = sync_fixture_lineups(
+                        fixture_id=fixture_id,
+                        force_refresh=False,
+                    )
+
+                st.success(
+                    f"Compositions synchronisées depuis : {result['source']} — "
+                    f"{result['saved_count']} joueur(s) récupéré(s)."
+                )
+            except RuntimeError as error:
+                st.error("La synchronisation des compositions a échoué.")
+                st.code(str(error))
+
+    with col2:
+        if st.button(
+            "Forcer refresh compositions",
+            key=f"force_sync_fixture_lineups_{fixture_id}",
+        ):
+            try:
+                with st.spinner("Refresh des compositions depuis API-Football..."):
+                    result = sync_fixture_lineups(
+                        fixture_id=fixture_id,
+                        force_refresh=True,
+                    )
+
+                st.warning(
+                    f"Compositions rafraîchies depuis : {result['source']} — "
+                    f"{result['saved_count']} joueur(s) récupéré(s)."
+                )
+            except RuntimeError as error:
+                st.error("Le refresh des compositions a échoué.")
+                st.code(str(error))
+
+    lineups = list_fixture_lineups_by_fixture_id(fixture_id)
+
+    if not lineups:
+        st.info(
+            "Aucune composition en base pour ce match. "
+            "Clique sur le bouton de synchronisation ou choisis un autre match."
+        )
+        return
+
+    lineup_options = {
+        f"{lineup['team_name']} - {lineup['formation'] or 'Formation inconnue'}": lineup["id"]
+        for lineup in lineups
+    }
+
+    selected_lineup_label = st.selectbox(
+        "Voir le JSON brut d'une composition",
+        list(lineup_options.keys()),
+        key=f"fixture_lineup_detail_{fixture_id}",
+    )
+
+    for lineup in lineups:
+        with st.container(border=True):
+            col_logo, col_info = st.columns([1, 4])
+
+            with col_logo:
+                if lineup.get("team_logo"):
+                    st.image(lineup["team_logo"], width=80)
+
+            with col_info:
+                st.markdown(f"### {lineup['team_name']}")
+                st.write(f"**Formation :** {lineup['formation'] or 'N/A'}")
+                st.write(f"**Coach :** {lineup['coach_name'] or 'N/A'}")
+                st.write(f"**Dernière mise à jour locale :** {lineup['updated_at']}")
+
+            starters = list_fixture_lineup_players(
+                fixture_id=fixture_id,
+                team_id=lineup["team_id"],
+                lineup_type="startXI",
+            )
+
+            substitutes = list_fixture_lineup_players(
+                fixture_id=fixture_id,
+                team_id=lineup["team_id"],
+                lineup_type="substitute",
+            )
+
+            col_start, col_subs = st.columns(2)
+
+            with col_start:
+                render_player_list("Titulaires", starters)
+
+            with col_subs:
+                render_player_list("Remplaçants", substitutes)
+
+    selected_lineup_id = lineup_options[selected_lineup_label]
+    lineup_detail = get_fixture_lineup_by_id(selected_lineup_id)
+
+    if lineup_detail:
+        with st.expander("JSON brut de la composition sélectionnée"):
+            st.code(
+                json.dumps(lineup_detail["raw"], indent=2, ensure_ascii=False),
+                language="json",
+            )
+
 def render_fixture_explorer() -> None:
     st.subheader("Matchs par ligue et saison")
 
@@ -936,10 +1097,11 @@ def render_fixture_explorer() -> None:
     if fixture_detail:
         st.divider()
 
-        detail_tab_stats, detail_tab_events, detail_tab_raw = st.tabs(
+        detail_tab_stats, detail_tab_events, detail_tab_lineups, detail_tab_raw = st.tabs(
             [
                 "📊 Statistiques",
                 "⏱️ Événements",
+                "🧩 Compositions",
                 "🧾 JSON brut",
             ]
         )
@@ -952,6 +1114,12 @@ def render_fixture_explorer() -> None:
 
         with detail_tab_events:
             render_fixture_events_section(
+                fixture_id=selected_fixture_id,
+                status_short=fixture_detail.get("status_short"),
+            )
+        
+        with detail_tab_lineups:
+            render_fixture_lineups_section(
                 fixture_id=selected_fixture_id,
                 status_short=fixture_detail.get("status_short"),
             )

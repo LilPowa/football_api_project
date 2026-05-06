@@ -1545,3 +1545,318 @@ def get_fixture_event_by_id(event_id: int) -> dict[str, Any] | None:
     result["raw"] = json.loads(result.pop("raw_json"))
 
     return result
+
+# -------------------------------------------------------------------
+# Fixture lineups
+# -------------------------------------------------------------------
+
+def save_fixture_lineups(
+    api_response: dict[str, Any],
+    fixture_id: int,
+) -> int:
+    lineups = api_response.get("response", [])
+    updated_at = get_utc_now()
+    saved_count = 0
+
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            DELETE FROM fixture_lineup_players
+            WHERE fixture_id = ?
+            """,
+            (fixture_id,),
+        )
+
+        cursor.execute(
+            """
+            DELETE FROM fixture_lineups
+            WHERE fixture_id = ?
+            """,
+            (fixture_id,),
+        )
+
+        for item in lineups:
+            team = item.get("team", {})
+            coach = item.get("coach", {})
+            team_id = team.get("id")
+
+            if team_id is None:
+                continue
+
+            cursor.execute(
+                """
+                INSERT INTO fixture_lineups (
+                    fixture_id,
+                    team_id,
+                    team_name,
+                    team_logo,
+                    coach_id,
+                    coach_name,
+                    coach_photo,
+                    formation,
+                    team_colors_json,
+                    raw_json,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(fixture_id, team_id) DO UPDATE SET
+                    team_name = excluded.team_name,
+                    team_logo = excluded.team_logo,
+                    coach_id = excluded.coach_id,
+                    coach_name = excluded.coach_name,
+                    coach_photo = excluded.coach_photo,
+                    formation = excluded.formation,
+                    team_colors_json = excluded.team_colors_json,
+                    raw_json = excluded.raw_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    fixture_id,
+                    team_id,
+                    team.get("name"),
+                    team.get("logo"),
+                    coach.get("id"),
+                    coach.get("name"),
+                    coach.get("photo"),
+                    item.get("formation"),
+                    json.dumps(item.get("team", {}).get("colors", {}), ensure_ascii=False),
+                    json.dumps(item, ensure_ascii=False),
+                    updated_at,
+                ),
+            )
+
+            start_xi = item.get("startXI", [])
+            substitutes = item.get("substitutes", [])
+
+            for index, player_item in enumerate(start_xi):
+                player = player_item.get("player", {})
+
+                cursor.execute(
+                    """
+                    INSERT INTO fixture_lineup_players (
+                        fixture_id,
+                        team_id,
+                        lineup_type,
+                        player_index,
+                        player_id,
+                        player_name,
+                        player_number,
+                        player_position,
+                        player_grid,
+                        raw_json,
+                        updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(fixture_id, team_id, lineup_type, player_index) DO UPDATE SET
+                        player_id = excluded.player_id,
+                        player_name = excluded.player_name,
+                        player_number = excluded.player_number,
+                        player_position = excluded.player_position,
+                        player_grid = excluded.player_grid,
+                        raw_json = excluded.raw_json,
+                        updated_at = excluded.updated_at
+                    """,
+                    (
+                        fixture_id,
+                        team_id,
+                        "startXI",
+                        index,
+                        player.get("id"),
+                        player.get("name"),
+                        player.get("number"),
+                        player.get("pos"),
+                        player.get("grid"),
+                        json.dumps(player_item, ensure_ascii=False),
+                        updated_at,
+                    ),
+                )
+
+                saved_count += 1
+
+            for index, player_item in enumerate(substitutes):
+                player = player_item.get("player", {})
+
+                cursor.execute(
+                    """
+                    INSERT INTO fixture_lineup_players (
+                        fixture_id,
+                        team_id,
+                        lineup_type,
+                        player_index,
+                        player_id,
+                        player_name,
+                        player_number,
+                        player_position,
+                        player_grid,
+                        raw_json,
+                        updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(fixture_id, team_id, lineup_type, player_index) DO UPDATE SET
+                        player_id = excluded.player_id,
+                        player_name = excluded.player_name,
+                        player_number = excluded.player_number,
+                        player_position = excluded.player_position,
+                        player_grid = excluded.player_grid,
+                        raw_json = excluded.raw_json,
+                        updated_at = excluded.updated_at
+                    """,
+                    (
+                        fixture_id,
+                        team_id,
+                        "substitute",
+                        index,
+                        player.get("id"),
+                        player.get("name"),
+                        player.get("number"),
+                        player.get("pos"),
+                        player.get("grid"),
+                        json.dumps(player_item, ensure_ascii=False),
+                        updated_at,
+                    ),
+                )
+
+                saved_count += 1
+
+        connection.commit()
+
+    return saved_count
+
+
+def count_fixture_lineups() -> int:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute("SELECT COUNT(*) AS total FROM fixture_lineups")
+        row = cursor.fetchone()
+
+        return int(row["total"])
+
+
+def count_fixture_lineup_players() -> int:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute("SELECT COUNT(*) AS total FROM fixture_lineup_players")
+        row = cursor.fetchone()
+
+        return int(row["total"])
+
+
+def list_fixture_lineups_by_fixture_id(
+    fixture_id: int,
+) -> list[dict[str, Any]]:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                id,
+                fixture_id,
+                team_id,
+                team_name,
+                team_logo,
+                coach_id,
+                coach_name,
+                coach_photo,
+                formation,
+                team_colors_json,
+                updated_at
+            FROM fixture_lineups
+            WHERE fixture_id = ?
+            ORDER BY team_name ASC
+            """,
+            (fixture_id,),
+        )
+
+        rows = cursor.fetchall()
+
+    results = []
+
+    for row in rows:
+        item = dict(row)
+        item["team_colors"] = json.loads(item.pop("team_colors_json") or "{}")
+        results.append(item)
+
+    return results
+
+
+def list_fixture_lineup_players(
+    fixture_id: int,
+    team_id: int,
+    lineup_type: str | None = None,
+) -> list[dict[str, Any]]:
+    query = """
+        SELECT
+            id,
+            fixture_id,
+            team_id,
+            lineup_type,
+            player_index,
+            player_id,
+            player_name,
+            player_number,
+            player_position,
+            player_grid,
+            updated_at
+        FROM fixture_lineup_players
+        WHERE fixture_id = ?
+        AND team_id = ?
+    """
+
+    params: list[Any] = [fixture_id, team_id]
+
+    if lineup_type:
+        query += " AND lineup_type = ?"
+        params.append(lineup_type)
+
+    query += """
+        ORDER BY lineup_type ASC, player_index ASC
+    """
+
+    with get_connection() as connection:
+        cursor = connection.cursor()
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+
+    return [dict(row) for row in rows]
+
+
+def get_fixture_lineup_by_id(lineup_id: int) -> dict[str, Any] | None:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                id,
+                fixture_id,
+                team_id,
+                team_name,
+                team_logo,
+                coach_id,
+                coach_name,
+                coach_photo,
+                formation,
+                team_colors_json,
+                raw_json,
+                updated_at
+            FROM fixture_lineups
+            WHERE id = ?
+            """,
+            (lineup_id,),
+        )
+
+        row = cursor.fetchone()
+
+    if row is None:
+        return None
+
+    result = dict(row)
+    result["team_colors"] = json.loads(result.pop("team_colors_json") or "{}")
+    result["raw"] = json.loads(result.pop("raw_json"))
+
+    return result

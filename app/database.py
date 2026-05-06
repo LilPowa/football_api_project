@@ -260,5 +260,49 @@ def init_db() -> None:
             )
             """
         )
+        
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS fixture_lineups (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                fixture_id INTEGER NOT NULL,
+                team_id INTEGER NOT NULL,
+                team_name TEXT,
+                team_logo TEXT,
+                coach_id INTEGER,
+                coach_name TEXT,
+                coach_photo TEXT,
+                formation TEXT,
+                team_colors_json TEXT,
+                raw_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(fixture_id, team_id),
+                FOREIGN KEY (fixture_id) REFERENCES fixtures(fixture_id),
+                FOREIGN KEY (team_id) REFERENCES teams(team_id)
+            )
+            """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS fixture_lineup_players (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                fixture_id INTEGER NOT NULL,
+                team_id INTEGER NOT NULL,
+                lineup_type TEXT NOT NULL,
+                player_index INTEGER NOT NULL,
+                player_id INTEGER,
+                player_name TEXT,
+                player_number INTEGER,
+                player_position TEXT,
+                player_grid TEXT,
+                raw_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(fixture_id, team_id, lineup_type, player_index),
+                FOREIGN KEY (fixture_id) REFERENCES fixtures(fixture_id),
+                FOREIGN KEY (team_id) REFERENCES teams(team_id)
+            )
+            """
+        )
 
         connection.commit()
