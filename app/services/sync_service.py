@@ -28,6 +28,8 @@ from app.repositories.football_repository import (
     count_players,
     count_team_squad_players,
     save_player_squad,
+    count_player_season_statistics,
+    save_player_season_statistics,
 )
 from app.services.cached_api_football_client import CachedApiFootballClient
 
@@ -308,4 +310,35 @@ def sync_player_squad(
         "saved_count": saved_count,
         "total_players": total_players,
         "total_squad_players": total_squad_players,
+    }
+
+def sync_players_statistics(
+    league_id: int,
+    season_year: int,
+    team_id: int | None = None,
+    force_refresh: bool = False,
+) -> dict[str, Any]:
+    init_db()
+
+    client = CachedApiFootballClient()
+    api_response = client.get_players_statistics(
+        league_id=league_id,
+        season=season_year,
+        team_id=team_id,
+        page=None,
+        force_refresh=force_refresh,
+    )
+
+    saved_count = save_player_season_statistics(
+        api_response=api_response,
+        league_id=league_id,
+        season_year=season_year,
+    )
+
+    total_player_season_statistics = count_player_season_statistics()
+
+    return {
+        "source": "cache local" if client.last_cache_hit else "API-Football",
+        "saved_count": saved_count,
+        "total_player_season_statistics": total_player_season_statistics,
     }

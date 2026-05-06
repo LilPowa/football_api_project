@@ -29,6 +29,11 @@ class Settings:
         "false"
     ).lower() in ("true", "1", "yes", "on")
 
+    API_FOOTBALL_ENABLE_PAGINATION_PARAMETER: bool = os.getenv(
+        "API_FOOTBALL_ENABLE_PAGINATION_PARAMETER",
+        "false"
+    ).lower() in ("true", "1", "yes", "on")
+
     @classmethod
     def validate(cls) -> None:
         if not cls.API_FOOTBALL_KEY:

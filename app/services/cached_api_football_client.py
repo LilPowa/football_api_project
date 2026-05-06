@@ -225,3 +225,29 @@ class CachedApiFootballClient:
             cache_ttl_seconds=7 * 24 * 60 * 60,
             force_refresh=force_refresh,
         )
+    
+    def get_players_statistics(
+        self,
+        league_id: int,
+        season: int,
+        team_id: int | None = None,
+        page: int | None = None,
+        force_refresh: bool = False,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {
+            "league": league_id,
+            "season": season,
+        }
+
+        if team_id is not None:
+            params["team"] = team_id
+
+        if settings.API_FOOTBALL_ENABLE_PAGINATION_PARAMETER and page is not None:
+            params["page"] = page
+
+        return self.get(
+            endpoint="players",
+            params=params,
+            cache_ttl_seconds=24 * 60 * 60,
+            force_refresh=force_refresh,
+        )

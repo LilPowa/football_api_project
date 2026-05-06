@@ -450,5 +450,94 @@ def init_db() -> None:
             )
             """
         )
+        
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS player_season_statistics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+                player_id INTEGER NOT NULL,
+                player_name TEXT,
+                player_firstname TEXT,
+                player_lastname TEXT,
+                player_age INTEGER,
+                player_birth_date TEXT,
+                player_birth_place TEXT,
+                player_birth_country TEXT,
+                player_nationality TEXT,
+                player_height TEXT,
+                player_weight TEXT,
+                player_injured INTEGER,
+                player_photo TEXT,
+
+                team_id INTEGER,
+                team_name TEXT,
+                team_logo TEXT,
+
+                league_id INTEGER,
+                league_name TEXT,
+                league_country TEXT,
+                league_logo TEXT,
+                league_flag TEXT,
+                season_year INTEGER,
+
+                games_appearences INTEGER,
+                games_lineups INTEGER,
+                games_minutes INTEGER,
+                games_number INTEGER,
+                games_position TEXT,
+                games_rating TEXT,
+                games_captain INTEGER,
+
+                substitutes_in INTEGER,
+                substitutes_out INTEGER,
+                substitutes_bench INTEGER,
+
+                shots_total INTEGER,
+                shots_on INTEGER,
+
+                goals_total INTEGER,
+                goals_conceded INTEGER,
+                goals_assists INTEGER,
+                goals_saves INTEGER,
+
+                passes_total INTEGER,
+                passes_key INTEGER,
+                passes_accuracy TEXT,
+
+                tackles_total INTEGER,
+                tackles_blocks INTEGER,
+                tackles_interceptions INTEGER,
+
+                duels_total INTEGER,
+                duels_won INTEGER,
+
+                dribbles_attempts INTEGER,
+                dribbles_success INTEGER,
+                dribbles_past INTEGER,
+
+                fouls_drawn INTEGER,
+                fouls_committed INTEGER,
+
+                cards_yellow INTEGER,
+                cards_yellowred INTEGER,
+                cards_red INTEGER,
+
+                penalty_won INTEGER,
+                penalty_commited INTEGER,
+                penalty_scored INTEGER,
+                penalty_missed INTEGER,
+                penalty_saved INTEGER,
+
+                raw_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+
+                UNIQUE(player_id, team_id, league_id, season_year),
+                FOREIGN KEY (player_id) REFERENCES players(player_id),
+                FOREIGN KEY (team_id) REFERENCES teams(team_id),
+                FOREIGN KEY (league_id) REFERENCES leagues(league_id)
+            )
+            """
+        )
                 
         connection.commit()
