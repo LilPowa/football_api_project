@@ -20,6 +20,10 @@ class Settings:
         str(BASE_DIR / "data" / "football_data.db")
     )
 
+    DEFAULT_CACHE_SECONDS: int = int(
+        os.getenv("DEFAULT_CACHE_SECONDS", "86400")
+    )
+
     @classmethod
     def validate(cls) -> None:
         if not cls.API_FOOTBALL_KEY:
