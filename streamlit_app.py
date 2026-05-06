@@ -33,7 +33,7 @@ from app.services.sync_service import (
     sync_teams,
 )
 
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.2.1"
 
 
 st.set_page_config(
@@ -55,6 +55,158 @@ def render_header() -> None:
         "avec cache et base SQLite."
     )
 
+def render_sidebar() -> None:
+    with st.sidebar:
+        st.title("⚽ Menu")
+        st.caption(f"Version {APP_VERSION}")
+
+        st.markdown("---")
+        st.markdown("### Base locale")
+
+        st.metric("Pays", count_countries())
+        st.metric("Ligues", count_leagues())
+        st.metric("Équipes", count_teams())
+        st.metric("Matchs", count_fixtures())
+        st.metric("Cache API", count_cache_entries())
+
+        st.markdown("---")
+        render_sidebar_sync_controls()
+
+        st.markdown("---")
+        st.info(
+            "Les données sont d'abord lues depuis la base SQLite locale. "
+            "Les boutons de synchronisation appellent l'API uniquement si nécessaire, "
+            "sauf en refresh forcé."
+        )
+
+def render_dashboard_home() -> None:
+    st.subheader("Tableau de bord")
+
+    st.write(
+        "Bienvenue dans le dashboard local API-Football. "
+        "L'objectif est de centraliser les données foot dans une base locale, "
+        "puis de les explorer sans consommer inutilement le quota API."
+    )
+
+    render_metrics()
+
+    st.markdown("### État d'avancement du projet")
+
+    roadmap_rows = [
+        {
+            "Phase": "Socle",
+            "État": "Terminé",
+            "Contenu": "Client API, configuration, cache, SQLite, Streamlit",
+        },
+        {
+            "Phase": "Données principales",
+            "État": "En cours",
+            "Contenu": "Pays, ligues, saisons, équipes, matchs, classements",
+        },
+        {
+            "Phase": "Détail des matchs",
+            "État": "En cours",
+            "Contenu": "Statistiques de match, événements, lineups, joueurs",
+        },
+        {
+            "Phase": "Joueurs",
+            "État": "À faire",
+            "Contenu": "Effectifs, top scorers, top assists, cartons",
+        },
+        {
+            "Phase": "Prédictions",
+            "État": "À faire",
+            "Contenu": "Predictions API, prédiction maison, comparaison",
+        },
+        {
+            "Phase": "Cotes",
+            "État": "À faire",
+            "Contenu": "Odds, bookmakers, historique local des cotes",
+        },
+        {
+            "Phase": "Industrialisation",
+            "État": "À faire",
+            "Contenu": "Logs, exports, tests, Docker, README",
+        },
+    ]
+
+    st.dataframe(
+        roadmap_rows,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.markdown("### Prochaine étape recommandée")
+
+    st.info(
+        "Prochaine brique : ajouter les événements d'un match avec "
+        "`/fixtures/events`, afin d'afficher une timeline complète du match."
+    )
+
+def render_admin_page() -> None:
+    st.subheader("Administration locale")
+
+    st.write(
+        "Cette page servira à gérer le cache, les quotas, les logs API "
+        "et l'historique des synchronisations."
+    )
+
+    st.markdown("### État actuel")
+
+    col1, col2, col3 = st.columns(3)
+
+    col1.metric("Entrées cache API", count_cache_entries())
+    col2.metric("Matchs stockés", count_fixtures())
+    col3.metric("Stats match stockées", count_fixture_statistics())
+
+    st.info(
+        "Pour l'instant, le cache est fonctionnel mais pas encore administrable "
+        "depuis l'interface. On ajoutera plus tard : suppression du cache, "
+        "historique des appels API, erreurs, quotas et logs."
+    )
+
+def render_sidebar_sync_controls() -> None:
+    st.markdown("### Synchronisation")
+
+    with st.expander("Synchronisations normales", expanded=False):
+        if st.button("Synchroniser les pays", key="sidebar_sync_countries"):
+            with st.spinner("Synchronisation des pays..."):
+                result = sync_countries(force_refresh=False)
+
+            st.success(
+                f"Pays : {result['total_count']} en base "
+                f"({result['source']})."
+            )
+
+        if st.button("Synchroniser les ligues", key="sidebar_sync_leagues"):
+            with st.spinner("Synchronisation des ligues..."):
+                result = sync_leagues(force_refresh=False)
+
+            st.success(
+                f"Ligues : {result['total_leagues']} en base "
+                f"({result['source']})."
+            )
+
+    with st.expander("Refresh forcé", expanded=False):
+        st.warning(
+            "Le refresh forcé consomme directement ton quota API-Football."
+        )
+
+        if st.button("Forcer refresh pays", key="sidebar_force_countries"):
+            with st.spinner("Refresh des pays..."):
+                result = sync_countries(force_refresh=True)
+
+            st.success(
+                f"Pays rafraîchis : {result['total_count']} en base."
+            )
+
+        if st.button("Forcer refresh ligues", key="sidebar_force_leagues"):
+            with st.spinner("Refresh des ligues..."):
+                result = sync_leagues(force_refresh=True)
+
+            st.success(
+                f"Ligues rafraîchies : {result['total_leagues']} en base."
+            )
 
 def render_sync_buttons() -> None:
     st.subheader("Synchronisation des données")
@@ -106,16 +258,19 @@ def render_sync_buttons() -> None:
 def render_metrics() -> None:
     st.subheader("État de la base locale")
 
-    col1, col2, col3, col4, col5, col6, col7, col8 = st.columns(8)
+    row1_col1, row1_col2, row1_col3, row1_col4 = st.columns(4)
 
-    col1.metric("Pays", count_countries())
-    col2.metric("Ligues", count_leagues())
-    col3.metric("Saisons", count_league_seasons())
-    col4.metric("Équipes", count_teams())
-    col5.metric("Matchs", count_fixtures())
-    col6.metric("Stats matchs", count_fixture_statistics())
-    col7.metric("Classements", count_standings())
-    col8.metric("Cache API", count_cache_entries())
+    row1_col1.metric("Pays", count_countries())
+    row1_col2.metric("Ligues", count_leagues())
+    row1_col3.metric("Saisons", count_league_seasons())
+    row1_col4.metric("Équipes", count_teams())
+
+    row2_col1, row2_col2, row2_col3, row2_col4 = st.columns(4)
+
+    row2_col1.metric("Matchs", count_fixtures())
+    row2_col2.metric("Stats matchs", count_fixture_statistics())
+    row2_col3.metric("Classements", count_standings())
+    row2_col4.metric("Cache API", count_cache_entries())
 
 def render_league_explorer() -> None:
     st.subheader("Exploration des ligues")
@@ -834,17 +989,36 @@ def render_standings_explorer() -> None:
 def main() -> None:
     initialize_app()
     render_header()
-    render_sync_buttons()
-    st.divider()
-    render_metrics()
-    st.divider()
-    render_league_explorer()
-    st.divider()
-    render_team_explorer()
-    st.divider()
-    render_fixture_explorer()
-    st.divider()
-    render_standings_explorer()
+    render_sidebar()
+
+    tab_dashboard, tab_leagues, tab_teams, tab_fixtures, tab_standings, tab_admin = st.tabs(
+        [
+            "🏠 Dashboard",
+            "🏆 Ligues",
+            "👥 Équipes",
+            "📅 Matchs",
+            "📊 Classements",
+            "⚙️ Admin",
+        ]
+    )
+
+    with tab_dashboard:
+        render_dashboard_home()
+
+    with tab_leagues:
+        render_league_explorer()
+
+    with tab_teams:
+        render_team_explorer()
+
+    with tab_fixtures:
+        render_fixture_explorer()
+
+    with tab_standings:
+        render_standings_explorer()
+
+    with tab_admin:
+        render_admin_page()
 
 if __name__ == "__main__":
     main()
