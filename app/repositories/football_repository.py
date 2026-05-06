@@ -1362,3 +1362,186 @@ def get_fixture_statistics_as_comparison(
         stat_map[stat_type][team_name] = stat["stat_value"]
 
     return list(stat_map.values())
+
+# -------------------------------------------------------------------
+# Fixture events
+# -------------------------------------------------------------------
+
+def save_fixture_events(
+    api_response: dict[str, Any],
+    fixture_id: int,
+) -> int:
+    events = api_response.get("response", [])
+    updated_at = get_utc_now()
+    saved_count = 0
+
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            DELETE FROM fixture_events
+            WHERE fixture_id = ?
+            """,
+            (fixture_id,),
+        )
+
+        for index, item in enumerate(events):
+            time_data = item.get("time", {})
+            team = item.get("team", {})
+            player = item.get("player", {})
+            assist = item.get("assist", {})
+
+            cursor.execute(
+                """
+                INSERT INTO fixture_events (
+                    fixture_id,
+                    event_index,
+                    elapsed,
+                    extra,
+                    team_id,
+                    team_name,
+                    team_logo,
+                    player_id,
+                    player_name,
+                    assist_id,
+                    assist_name,
+                    event_type,
+                    event_detail,
+                    comments,
+                    raw_json,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(fixture_id, event_index) DO UPDATE SET
+                    elapsed = excluded.elapsed,
+                    extra = excluded.extra,
+                    team_id = excluded.team_id,
+                    team_name = excluded.team_name,
+                    team_logo = excluded.team_logo,
+                    player_id = excluded.player_id,
+                    player_name = excluded.player_name,
+                    assist_id = excluded.assist_id,
+                    assist_name = excluded.assist_name,
+                    event_type = excluded.event_type,
+                    event_detail = excluded.event_detail,
+                    comments = excluded.comments,
+                    raw_json = excluded.raw_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    fixture_id,
+                    index,
+                    time_data.get("elapsed"),
+                    time_data.get("extra"),
+                    team.get("id"),
+                    team.get("name"),
+                    team.get("logo"),
+                    player.get("id"),
+                    player.get("name"),
+                    assist.get("id"),
+                    assist.get("name"),
+                    item.get("type"),
+                    item.get("detail"),
+                    item.get("comments"),
+                    json.dumps(item, ensure_ascii=False),
+                    updated_at,
+                ),
+            )
+
+            saved_count += 1
+
+        connection.commit()
+
+    return saved_count
+
+
+def count_fixture_events() -> int:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute("SELECT COUNT(*) AS total FROM fixture_events")
+        row = cursor.fetchone()
+
+        return int(row["total"])
+
+
+def list_fixture_events_by_fixture_id(
+    fixture_id: int,
+) -> list[dict[str, Any]]:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                id,
+                fixture_id,
+                event_index,
+                elapsed,
+                extra,
+                team_id,
+                team_name,
+                team_logo,
+                player_id,
+                player_name,
+                assist_id,
+                assist_name,
+                event_type,
+                event_detail,
+                comments,
+                updated_at
+            FROM fixture_events
+            WHERE fixture_id = ?
+            ORDER BY
+                COALESCE(elapsed, 0) ASC,
+                COALESCE(extra, 0) ASC,
+                event_index ASC
+            """,
+            (fixture_id,),
+        )
+
+        rows = cursor.fetchall()
+
+    return [dict(row) for row in rows]
+
+
+def get_fixture_event_by_id(event_id: int) -> dict[str, Any] | None:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                id,
+                fixture_id,
+                event_index,
+                elapsed,
+                extra,
+                team_id,
+                team_name,
+                team_logo,
+                player_id,
+                player_name,
+                assist_id,
+                assist_name,
+                event_type,
+                event_detail,
+                comments,
+                raw_json,
+                updated_at
+            FROM fixture_events
+            WHERE id = ?
+            """,
+            (event_id,),
+        )
+
+        row = cursor.fetchone()
+
+    if row is None:
+        return None
+
+    result = dict(row)
+    result["raw"] = json.loads(result.pop("raw_json"))
+
+    return result

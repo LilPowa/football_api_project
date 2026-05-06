@@ -232,5 +232,33 @@ def init_db() -> None:
             )
             """
         )
+        
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS fixture_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                fixture_id INTEGER NOT NULL,
+                event_index INTEGER NOT NULL,
+                elapsed INTEGER,
+                extra INTEGER,
+                team_id INTEGER,
+                team_name TEXT,
+                team_logo TEXT,
+                player_id INTEGER,
+                player_name TEXT,
+                assist_id INTEGER,
+                assist_name TEXT,
+                event_type TEXT,
+                event_detail TEXT,
+                comments TEXT,
+                raw_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(fixture_id, event_index),
+                FOREIGN KEY (fixture_id) REFERENCES fixtures(fixture_id),
+                FOREIGN KEY (team_id) REFERENCES teams(team_id),
+                FOREIGN KEY (player_id) REFERENCES teams(team_id)
+            )
+            """
+        )
 
         connection.commit()

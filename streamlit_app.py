@@ -6,6 +6,7 @@ from app.database import init_db
 from app.repositories.api_cache_repository import count_cache_entries
 from app.repositories.football_repository import (
     count_countries,
+    count_fixture_events,
     count_fixture_statistics,
     count_fixtures,
     count_league_seasons,
@@ -13,10 +14,12 @@ from app.repositories.football_repository import (
     count_standings,
     count_teams,
     get_fixture_by_id,
+    get_fixture_event_by_id,
     get_fixture_statistics_as_comparison,
     get_league_by_id,
     get_standing_by_id,
     list_all_countries,
+    list_fixture_events_by_fixture_id,
     list_fixture_teams_filter,
     list_fixtures_filtered,
     list_league_seasons_by_league_id,
@@ -26,6 +29,7 @@ from app.repositories.football_repository import (
 )
 from app.services.sync_service import (
     sync_countries,
+    sync_fixture_events,
     sync_fixture_statistics,
     sync_fixtures,
     sync_leagues,
@@ -67,6 +71,8 @@ def render_sidebar() -> None:
         st.metric("Ligues", count_leagues())
         st.metric("Équipes", count_teams())
         st.metric("Matchs", count_fixtures())
+        st.metric("Stats matchs", count_fixture_statistics())
+        st.metric("Événements", count_fixture_events())
         st.metric("Cache API", count_cache_entries())
 
         st.markdown("---")
@@ -153,11 +159,12 @@ def render_admin_page() -> None:
 
     st.markdown("### État actuel")
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
 
     col1.metric("Entrées cache API", count_cache_entries())
     col2.metric("Matchs stockés", count_fixtures())
     col3.metric("Stats match stockées", count_fixture_statistics())
+    col4.metric("Événements stockés", count_fixture_events())
 
     st.info(
         "Pour l'instant, le cache est fonctionnel mais pas encore administrable "
@@ -269,8 +276,15 @@ def render_metrics() -> None:
 
     row2_col1.metric("Matchs", count_fixtures())
     row2_col2.metric("Stats matchs", count_fixture_statistics())
-    row2_col3.metric("Classements", count_standings())
-    row2_col4.metric("Cache API", count_cache_entries())
+    row2_col3.metric("Événements", count_fixture_events())
+    row2_col4.metric("Classements", count_standings())
+
+    row3_col1, row3_col2, row3_col3, row3_col4 = st.columns(4)
+
+    row3_col1.metric("Cache API", count_cache_entries())
+    row3_col2.metric("À venir", "Lineups")
+    row3_col3.metric("À venir", "Joueurs")
+    row3_col4.metric("À venir", "Prédictions")
 
 def render_league_explorer() -> None:
     st.subheader("Exploration des ligues")
@@ -571,6 +585,156 @@ def render_fixture_statistics_section(fixture_id: int, status_short: str | None)
         hide_index=True,
     )
 
+def get_event_icon(event_type: str | None, event_detail: str | None) -> str:
+    event_type = event_type or ""
+    event_detail = event_detail or ""
+
+    if event_type == "Goal":
+        return "⚽"
+
+    if event_type == "Card":
+        if "Red" in event_detail:
+            return "🟥"
+        return "🟨"
+
+    if event_type == "subst":
+        return "🔁"
+
+    if event_type == "Var":
+        return "📺"
+
+    return "•"
+
+
+def format_event_minute(elapsed: int | None, extra: int | None) -> str:
+    if elapsed is None:
+        return "N/A"
+
+    if extra is not None:
+        return f"{elapsed}+{extra}'"
+
+    return f"{elapsed}'"
+
+
+def render_fixture_events_section(
+    fixture_id: int,
+    status_short: str | None,
+) -> None:
+    st.markdown("### Timeline des événements")
+
+    if status_short == "NS":
+        st.info(
+            "Ce match n'a pas encore commencé. "
+            "Les événements risquent d'être vides."
+        )
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button(
+            "Synchroniser les événements du match",
+            key=f"sync_fixture_events_{fixture_id}",
+        ):
+            try:
+                with st.spinner("Synchronisation des événements du match..."):
+                    result = sync_fixture_events(
+                        fixture_id=fixture_id,
+                        force_refresh=False,
+                    )
+
+                st.success(
+                    f"Événements synchronisés depuis : {result['source']} — "
+                    f"{result['saved_count']} événement(s) récupéré(s)."
+                )
+            except RuntimeError as error:
+                st.error("La synchronisation des événements a échoué.")
+                st.code(str(error))
+
+    with col2:
+        if st.button(
+            "Forcer refresh événements",
+            key=f"force_sync_fixture_events_{fixture_id}",
+        ):
+            try:
+                with st.spinner("Refresh des événements depuis API-Football..."):
+                    result = sync_fixture_events(
+                        fixture_id=fixture_id,
+                        force_refresh=True,
+                    )
+
+                st.warning(
+                    f"Événements rafraîchis depuis : {result['source']} — "
+                    f"{result['saved_count']} événement(s) récupéré(s)."
+                )
+            except RuntimeError as error:
+                st.error("Le refresh des événements a échoué.")
+                st.code(str(error))
+
+    events = list_fixture_events_by_fixture_id(fixture_id)
+
+    if not events:
+        st.info(
+            "Aucun événement en base pour ce match. "
+            "Clique sur le bouton de synchronisation ou choisis un match terminé."
+        )
+        return
+
+    event_options = {}
+
+    for event in events:
+        minute = format_event_minute(event["elapsed"], event["extra"])
+        icon = get_event_icon(event["event_type"], event["event_detail"])
+
+        label = (
+            f"{minute} {icon} "
+            f"{event['event_type'] or 'Event'} - "
+            f"{event['event_detail'] or 'N/A'} "
+            f"| {event['player_name'] or 'N/A'}"
+        )
+
+        event_options[label] = event["id"]
+
+        with st.container(border=True):
+            col_minute, col_event, col_team = st.columns([1, 4, 3])
+
+            with col_minute:
+                st.markdown(f"### {minute}")
+
+            with col_event:
+                st.markdown(
+                    f"**{icon} {event['event_type'] or 'Event'}**"
+                )
+                st.write(f"**Détail :** {event['event_detail'] or 'N/A'}")
+                st.write(f"**Joueur :** {event['player_name'] or 'N/A'}")
+
+                if event.get("assist_name"):
+                    st.write(f"**Assist :** {event['assist_name']}")
+
+                if event.get("comments"):
+                    st.write(f"**Commentaire :** {event['comments']}")
+
+            with col_team:
+                if event.get("team_logo"):
+                    st.image(event["team_logo"], width=45)
+
+                st.write(f"**Équipe :** {event['team_name'] or 'N/A'}")
+
+    selected_event_label = st.selectbox(
+        "Voir le JSON brut d'un événement",
+        list(event_options.keys()),
+        key=f"fixture_event_detail_{fixture_id}",
+    )
+
+    selected_event_id = event_options[selected_event_label]
+    event_detail = get_fixture_event_by_id(selected_event_id)
+
+    if event_detail:
+        with st.expander("JSON brut de l'événement sélectionné"):
+            st.code(
+                json.dumps(event_detail["raw"], indent=2, ensure_ascii=False),
+                language="json",
+            )
+
 def render_fixture_explorer() -> None:
     st.subheader("Matchs par ligue et saison")
 
@@ -772,12 +936,27 @@ def render_fixture_explorer() -> None:
     if fixture_detail:
         st.divider()
 
-        render_fixture_statistics_section(
-            fixture_id=selected_fixture_id,
-            status_short=fixture_detail.get("status_short"),
+        detail_tab_stats, detail_tab_events, detail_tab_raw = st.tabs(
+            [
+                "📊 Statistiques",
+                "⏱️ Événements",
+                "🧾 JSON brut",
+            ]
         )
 
-        with st.expander("Voir le JSON brut du match sélectionné"):
+        with detail_tab_stats:
+            render_fixture_statistics_section(
+                fixture_id=selected_fixture_id,
+                status_short=fixture_detail.get("status_short"),
+            )
+
+        with detail_tab_events:
+            render_fixture_events_section(
+                fixture_id=selected_fixture_id,
+                status_short=fixture_detail.get("status_short"),
+            )
+
+        with detail_tab_raw:
             st.code(
                 json.dumps(fixture_detail["raw"], indent=2, ensure_ascii=False),
                 language="json",
