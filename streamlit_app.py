@@ -1,5 +1,7 @@
 import json
 
+from app.config import settings
+
 import streamlit as st
 
 from app.database import init_db
@@ -12,6 +14,7 @@ from app.repositories.football_repository import (
     count_fixture_player_statistics,
     count_fixture_statistics,
     count_fixtures,
+    count_head_to_head_matches,
     count_league_seasons,
     count_leagues,
     count_standings,
@@ -21,6 +24,8 @@ from app.repositories.football_repository import (
     get_fixture_lineup_by_id,
     get_fixture_player_statistic_by_id,
     get_fixture_statistics_as_comparison,
+    get_head_to_head_match_by_id,
+    get_head_to_head_summary,
     get_league_by_id,
     get_standing_by_id,
     list_all_countries,
@@ -30,6 +35,7 @@ from app.repositories.football_repository import (
     list_fixture_player_statistics_by_fixture_id,
     list_fixture_teams_filter,
     list_fixtures_filtered,
+    list_head_to_head_matches,
     list_league_seasons_by_league_id,
     list_leagues_filtered,
     list_standings_by_league_season,
@@ -42,6 +48,7 @@ from app.services.sync_service import (
     sync_fixture_players,
     sync_fixture_statistics,
     sync_fixtures,
+    sync_head_to_head,
     sync_leagues,
     sync_standings,
     sync_teams,
@@ -85,6 +92,7 @@ def render_sidebar() -> None:
         st.metric("Événements", count_fixture_events())
         st.metric("Compositions", count_fixture_lineups())
         st.metric("Stats joueurs", count_fixture_player_statistics())
+        st.metric("Head-to-head", count_head_to_head_matches())
         st.metric("Cache API", count_cache_entries())
 
         st.markdown("---")
@@ -184,6 +192,13 @@ def render_admin_page() -> None:
     col6.metric("Joueurs lineups", count_fixture_lineup_players())
     col7.metric("Stats joueurs", count_fixture_player_statistics())
     col8.metric("Classements", count_standings())
+
+    col9, col10, col11, col12 = st.columns(4)
+
+    col9.metric("Head-to-head", count_head_to_head_matches())
+    col10.metric("Équipes", count_teams())
+    col11.metric("Ligues", count_leagues())
+    col12.metric("Pays", count_countries())
 
     st.info(
         "Pour l'instant, le cache est fonctionnel mais pas encore administrable "
@@ -303,7 +318,14 @@ def render_metrics() -> None:
     row3_col1.metric("Joueurs lineups", count_fixture_lineup_players())
     row3_col2.metric("Stats joueurs", count_fixture_player_statistics())
     row3_col3.metric("Classements", count_standings())
-    row3_col4.metric("Cache API", count_cache_entries())
+    row3_col4.metric("Head-to-head", count_head_to_head_matches())
+
+    row4_col1, row4_col2, row4_col3, row4_col4 = st.columns(4)
+
+    row4_col1.metric("Cache API", count_cache_entries())
+    row4_col2.metric("À venir", "Squads")
+    row4_col3.metric("À venir", "Predictions")
+    row4_col4.metric("À venir", "Odds")
 
 def render_league_explorer() -> None:
     st.subheader("Exploration des ligues")
@@ -1507,19 +1529,236 @@ def render_standings_explorer() -> None:
                 json.dumps(standing_detail["raw"], indent=2, ensure_ascii=False),
                 language="json",
             )
+            
+def render_head_to_head_page() -> None:
+    st.subheader("Comparaison Head-to-Head")
+
+    st.write(
+        "Cette page permet de comparer deux équipes et de récupérer "
+        "leurs confrontations directes."
+    )
+
+    leagues = list_leagues_filtered(limit=500)
+
+    if not leagues:
+        st.info("Aucune ligue disponible. Synchronise d'abord les ligues.")
+        return
+
+    league_options = {
+        f"[{league['league_id']}] {league['name']} — {league['country_name']}": league["league_id"]
+        for league in leagues
+    }
+
+    selected_league_label = st.selectbox(
+        "Choisir une ligue pour filtrer les équipes",
+        list(league_options.keys()),
+        key="h2h_league_select",
+    )
+
+    selected_league_id = league_options[selected_league_label]
+    seasons = list_league_seasons_by_league_id(selected_league_id)
+
+    if not seasons:
+        st.info("Aucune saison disponible pour cette ligue.")
+        return
+
+    season_options = {
+        f"{season['season_year']} {'(courante)' if season['current'] else ''}": season["season_year"]
+        for season in seasons
+    }
+
+    selected_season_label = st.selectbox(
+        "Choisir une saison pour filtrer les équipes",
+        list(season_options.keys()),
+        key="h2h_season_select",
+    )
+
+    selected_season_year = season_options[selected_season_label]
+
+    league_teams = list_teams_by_league_season(
+        league_id=selected_league_id,
+        season_year=selected_season_year,
+    )
+
+    if not league_teams:
+        st.info(
+            "Aucune équipe disponible pour cette ligue/saison. "
+            "Va d'abord dans l'onglet Équipes et synchronise les équipes."
+        )
+        return
+
+    team_options = {
+        f"[{team['team_id']}] {team['name']}": team["team_id"]
+        for team in league_teams
+    }
+
+    col_team_a, col_team_b, col_last = st.columns([2, 2, 1])
+
+    with col_team_a:
+        selected_team_a_label = st.selectbox(
+            "Équipe A",
+            list(team_options.keys()),
+            key="h2h_team_a",
+        )
+
+    with col_team_b:
+        selected_team_b_label = st.selectbox(
+            "Équipe B",
+            list(team_options.keys()),
+            key="h2h_team_b",
+        )
+
+    with col_last:
+        last = st.number_input(
+            "Nombre max",
+            min_value=1,
+            max_value=50,
+            value=10,
+            step=1,
+            key="h2h_last",
+            disabled=not settings.API_FOOTBALL_ENABLE_H2H_LAST_PARAMETER,
+        )
+
+        if not settings.API_FOOTBALL_ENABLE_H2H_LAST_PARAMETER:
+            st.caption("Désactivé avec le plan Free.")
+
+    team_a_id = team_options[selected_team_a_label]
+    team_b_id = team_options[selected_team_b_label]
+
+    if team_a_id == team_b_id:
+        st.warning("Choisis deux équipes différentes.")
+        return
+
+    col_sync, col_force = st.columns(2)
+
+    with col_sync:
+        if st.button("Synchroniser head-to-head", key="sync_h2h_button"):
+            try:
+                with st.spinner("Synchronisation du head-to-head..."):
+                    result = sync_head_to_head(
+                        team_a_id=team_a_id,
+                        team_b_id=team_b_id,
+                        last=int(last) if settings.API_FOOTBALL_ENABLE_H2H_LAST_PARAMETER else None,
+                        force_refresh=False,
+                    )
+
+                st.success(
+                    f"Head-to-head synchronisé depuis : {result['source']} — "
+                    f"{result['saved_count']} match(s) récupéré(s)."
+                )
+            except RuntimeError as error:
+                st.error("La synchronisation du head-to-head a échoué.")
+                st.code(str(error))
+
+    with col_force:
+        if st.button("Forcer refresh head-to-head", key="force_sync_h2h_button"):
+            try:
+                with st.spinner("Refresh du head-to-head depuis API-Football..."):
+                    result = sync_head_to_head(
+                        team_a_id=team_a_id,
+                        team_b_id=team_b_id,
+                        last=int(last) if settings.API_FOOTBALL_ENABLE_H2H_LAST_PARAMETER else None,
+                        force_refresh=True,
+                    )
+
+                st.warning(
+                    f"Head-to-head rafraîchi depuis : {result['source']} — "
+                    f"{result['saved_count']} match(s) récupéré(s)."
+                )
+            except RuntimeError as error:
+                st.error("Le refresh du head-to-head a échoué.")
+                st.code(str(error))
+
+    summary = get_head_to_head_summary(team_a_id, team_b_id)
+    matches = list_head_to_head_matches(team_a_id, team_b_id, limit=int(last))
+
+    st.markdown("### Résumé des confrontations")
+
+    col1, col2, col3, col4, col5 = st.columns(5)
+
+    col1.metric("Matchs joués", summary["played_matches"])
+    col2.metric("Victoires A", summary["team_a_wins"])
+    col3.metric("Victoires B", summary["team_b_wins"])
+    col4.metric("Nuls", summary["draws"])
+    col5.metric("Buts/match", summary["average_goals"])
+
+    if not matches:
+        st.info(
+            "Aucune confrontation en base pour ces deux équipes. "
+            "Clique sur Synchroniser head-to-head."
+        )
+        return
+
+    st.markdown("### Dernières confrontations")
+
+    match_options = {}
+
+    for match in matches:
+        score = (
+            f"{match['home_goals']} - {match['away_goals']}"
+            if match["home_goals"] is not None and match["away_goals"] is not None
+            else "score indisponible"
+        )
+
+        label = (
+            f"{match['fixture_date']} | "
+            f"{match['home_team_name']} {score} {match['away_team_name']}"
+        )
+
+        match_options[label] = match["id"]
+
+        with st.container(border=True):
+            col_home, col_score, col_away, col_meta = st.columns([3, 2, 3, 3])
+
+            with col_home:
+                if match.get("home_team_logo"):
+                    st.image(match["home_team_logo"], width=50)
+                st.markdown(f"**{match['home_team_name']}**")
+
+            with col_score:
+                st.markdown(f"### {score}")
+                st.write(f"Statut : {match['status_short'] or 'N/A'}")
+
+            with col_away:
+                if match.get("away_team_logo"):
+                    st.image(match["away_team_logo"], width=50)
+                st.markdown(f"**{match['away_team_name']}**")
+
+            with col_meta:
+                st.write(f"**Compétition :** {match['league_name'] or 'N/A'}")
+                st.write(f"**Saison :** {match['season_year'] or 'N/A'}")
+                st.write(f"**Date :** {match['fixture_date'] or 'N/A'}")
+                st.write(f"**Stade :** {match['venue_name'] or 'N/A'}")
+
+    selected_match_label = st.selectbox(
+        "Voir le JSON brut d'une confrontation",
+        list(match_options.keys()),
+        key="h2h_match_detail",
+    )
+
+    selected_h2h_match_id = match_options[selected_match_label]
+    match_detail = get_head_to_head_match_by_id(selected_h2h_match_id)
+
+    if match_detail:
+        with st.expander("JSON brut de la confrontation sélectionnée"):
+            st.code(
+                json.dumps(match_detail["raw"], indent=2, ensure_ascii=False),
+                language="json",
+            )
 
 def main() -> None:
     initialize_app()
     render_header()
     render_sidebar()
 
-    tab_dashboard, tab_leagues, tab_teams, tab_fixtures, tab_standings, tab_admin = st.tabs(
+    tab_dashboard, tab_leagues, tab_teams, tab_fixtures, tab_standings, tab_h2h, tab_admin = st.tabs(
         [
             "🏠 Dashboard",
             "🏆 Ligues",
             "👥 Équipes",
             "📅 Matchs",
             "📊 Classements",
+            "⚔️ Head-to-Head",
             "⚙️ Admin",
         ]
     )
@@ -1538,6 +1777,9 @@ def main() -> None:
 
     with tab_standings:
         render_standings_explorer()
+    
+    with tab_h2h:
+        render_head_to_head_page()
 
     with tab_admin:
         render_admin_page()

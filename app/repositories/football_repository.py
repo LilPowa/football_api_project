@@ -2270,3 +2270,359 @@ def get_fixture_player_statistic_by_id(
     result["raw"] = json.loads(result.pop("raw_json"))
 
     return result
+
+# -------------------------------------------------------------------
+# Head-to-head
+# -------------------------------------------------------------------
+
+def get_pair_key(team_a_id: int, team_b_id: int) -> str:
+    first_id, second_id = sorted([team_a_id, team_b_id])
+    return f"{first_id}-{second_id}"
+
+
+def save_head_to_head_matches(
+    api_response: dict[str, Any],
+    team_a_id: int,
+    team_b_id: int,
+) -> int:
+    matches = api_response.get("response", [])
+    updated_at = get_utc_now()
+    pair_key = get_pair_key(team_a_id, team_b_id)
+    saved_count = 0
+
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            DELETE FROM head_to_head_matches
+            WHERE pair_key = ?
+            """,
+            (pair_key,),
+        )
+
+        for item in matches:
+            fixture = item.get("fixture", {})
+            league = item.get("league", {})
+            teams = item.get("teams", {})
+            goals = item.get("goals", {})
+
+            venue = fixture.get("venue", {})
+            status = fixture.get("status", {})
+
+            home_team = teams.get("home", {})
+            away_team = teams.get("away", {})
+
+            fixture_id = fixture.get("id")
+
+            if fixture_id is None:
+                continue
+
+            home_winner = home_team.get("winner")
+            away_winner = away_team.get("winner")
+
+            winner_team_id = None
+            winner_team_name = None
+
+            if home_winner is True:
+                winner_team_id = home_team.get("id")
+                winner_team_name = home_team.get("name")
+            elif away_winner is True:
+                winner_team_id = away_team.get("id")
+                winner_team_name = away_team.get("name")
+
+            cursor.execute(
+                """
+                INSERT INTO head_to_head_matches (
+                    pair_key,
+                    team_a_id,
+                    team_b_id,
+                    fixture_id,
+
+                    league_id,
+                    league_name,
+                    league_country,
+                    season_year,
+                    round,
+
+                    fixture_date,
+                    fixture_timestamp,
+                    status_long,
+                    status_short,
+
+                    venue_name,
+                    venue_city,
+
+                    home_team_id,
+                    home_team_name,
+                    home_team_logo,
+                    away_team_id,
+                    away_team_name,
+                    away_team_logo,
+
+                    home_goals,
+                    away_goals,
+
+                    winner_team_id,
+                    winner_team_name,
+
+                    raw_json,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(pair_key, fixture_id) DO UPDATE SET
+                    team_a_id = excluded.team_a_id,
+                    team_b_id = excluded.team_b_id,
+
+                    league_id = excluded.league_id,
+                    league_name = excluded.league_name,
+                    league_country = excluded.league_country,
+                    season_year = excluded.season_year,
+                    round = excluded.round,
+
+                    fixture_date = excluded.fixture_date,
+                    fixture_timestamp = excluded.fixture_timestamp,
+                    status_long = excluded.status_long,
+                    status_short = excluded.status_short,
+
+                    venue_name = excluded.venue_name,
+                    venue_city = excluded.venue_city,
+
+                    home_team_id = excluded.home_team_id,
+                    home_team_name = excluded.home_team_name,
+                    home_team_logo = excluded.home_team_logo,
+                    away_team_id = excluded.away_team_id,
+                    away_team_name = excluded.away_team_name,
+                    away_team_logo = excluded.away_team_logo,
+
+                    home_goals = excluded.home_goals,
+                    away_goals = excluded.away_goals,
+
+                    winner_team_id = excluded.winner_team_id,
+                    winner_team_name = excluded.winner_team_name,
+
+                    raw_json = excluded.raw_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    pair_key,
+                    team_a_id,
+                    team_b_id,
+                    fixture_id,
+
+                    league.get("id"),
+                    league.get("name"),
+                    league.get("country"),
+                    league.get("season"),
+                    league.get("round"),
+
+                    fixture.get("date"),
+                    fixture.get("timestamp"),
+                    status.get("long"),
+                    status.get("short"),
+
+                    venue.get("name"),
+                    venue.get("city"),
+
+                    home_team.get("id"),
+                    home_team.get("name"),
+                    home_team.get("logo"),
+                    away_team.get("id"),
+                    away_team.get("name"),
+                    away_team.get("logo"),
+
+                    goals.get("home"),
+                    goals.get("away"),
+
+                    winner_team_id,
+                    winner_team_name,
+
+                    json.dumps(item, ensure_ascii=False),
+                    updated_at,
+                ),
+            )
+
+            saved_count += 1
+
+        connection.commit()
+
+    return saved_count
+
+
+def count_head_to_head_matches() -> int:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute("SELECT COUNT(*) AS total FROM head_to_head_matches")
+        row = cursor.fetchone()
+
+        return int(row["total"])
+
+
+def list_head_to_head_matches(
+    team_a_id: int,
+    team_b_id: int,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    pair_key = get_pair_key(team_a_id, team_b_id)
+
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                id,
+                pair_key,
+                team_a_id,
+                team_b_id,
+                fixture_id,
+
+                league_id,
+                league_name,
+                league_country,
+                season_year,
+                round,
+
+                fixture_date,
+                fixture_timestamp,
+                status_long,
+                status_short,
+
+                venue_name,
+                venue_city,
+
+                home_team_id,
+                home_team_name,
+                home_team_logo,
+                away_team_id,
+                away_team_name,
+                away_team_logo,
+
+                home_goals,
+                away_goals,
+
+                winner_team_id,
+                winner_team_name,
+
+                updated_at
+            FROM head_to_head_matches
+            WHERE pair_key = ?
+            ORDER BY fixture_timestamp DESC
+            LIMIT ?
+            """,
+            (pair_key, limit),
+        )
+
+        rows = cursor.fetchall()
+
+    return [dict(row) for row in rows]
+
+
+def get_head_to_head_match_by_id(
+    head_to_head_match_id: int,
+) -> dict[str, Any] | None:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                id,
+                pair_key,
+                team_a_id,
+                team_b_id,
+                fixture_id,
+
+                league_id,
+                league_name,
+                league_country,
+                season_year,
+                round,
+
+                fixture_date,
+                fixture_timestamp,
+                status_long,
+                status_short,
+
+                venue_name,
+                venue_city,
+
+                home_team_id,
+                home_team_name,
+                home_team_logo,
+                away_team_id,
+                away_team_name,
+                away_team_logo,
+
+                home_goals,
+                away_goals,
+
+                winner_team_id,
+                winner_team_name,
+
+                raw_json,
+                updated_at
+            FROM head_to_head_matches
+            WHERE id = ?
+            """,
+            (head_to_head_match_id,),
+        )
+
+        row = cursor.fetchone()
+
+    if row is None:
+        return None
+
+    result = dict(row)
+    result["raw"] = json.loads(result.pop("raw_json"))
+
+    return result
+
+
+def get_head_to_head_summary(
+    team_a_id: int,
+    team_b_id: int,
+) -> dict[str, Any]:
+    matches = list_head_to_head_matches(team_a_id, team_b_id, limit=500)
+
+    team_a_wins = 0
+    team_b_wins = 0
+    draws = 0
+    total_goals = 0
+    played_matches = 0
+
+    for match in matches:
+        home_goals = match["home_goals"]
+        away_goals = match["away_goals"]
+
+        if home_goals is None or away_goals is None:
+            continue
+
+        played_matches += 1
+        total_goals += home_goals + away_goals
+
+        winner_team_id = match["winner_team_id"]
+
+        if winner_team_id == team_a_id:
+            team_a_wins += 1
+        elif winner_team_id == team_b_id:
+            team_b_wins += 1
+        else:
+            draws += 1
+
+    average_goals = (
+        round(total_goals / played_matches, 2)
+        if played_matches > 0
+        else 0
+    )
+
+    return {
+        "matches_count": len(matches),
+        "played_matches": played_matches,
+        "team_a_wins": team_a_wins,
+        "team_b_wins": team_b_wins,
+        "draws": draws,
+        "total_goals": total_goals,
+        "average_goals": average_goals,
+    }

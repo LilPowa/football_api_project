@@ -188,3 +188,24 @@ class CachedApiFootballClient:
             cache_ttl_seconds=60 * 60,
             force_refresh=force_refresh,
         )
+    
+    def get_head_to_head(
+        self,
+        team_a_id: int,
+        team_b_id: int,
+        last: int | None = None,
+        force_refresh: bool = False,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {
+            "h2h": f"{team_a_id}-{team_b_id}",
+        }
+
+        if settings.API_FOOTBALL_ENABLE_H2H_LAST_PARAMETER and last is not None:
+            params["last"] = last
+
+        return self.get(
+            endpoint="fixtures/headtohead",
+            params=params,
+            cache_ttl_seconds=24 * 60 * 60,
+            force_refresh=force_refresh,
+        )

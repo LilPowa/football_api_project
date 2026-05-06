@@ -9,6 +9,7 @@ from app.repositories.football_repository import (
     count_fixture_player_statistics,
     count_fixture_statistics,
     count_fixtures,
+    count_head_to_head_matches,
     count_league_seasons,
     count_leagues,
     count_standings,
@@ -20,6 +21,7 @@ from app.repositories.football_repository import (
     save_fixture_player_statistics,
     save_fixture_statistics,
     save_fixtures,
+    save_head_to_head_matches,
     save_leagues,
     save_standings,
     save_teams,
@@ -246,4 +248,34 @@ def sync_fixture_players(
         "source": "cache local" if client.last_cache_hit else "API-Football",
         "saved_count": saved_count,
         "total_fixture_player_statistics": total_fixture_player_statistics,
+    }
+
+def sync_head_to_head(
+    team_a_id: int,
+    team_b_id: int,
+    last: int | None = None,
+    force_refresh: bool = False,
+) -> dict[str, Any]:
+    init_db()
+
+    client = CachedApiFootballClient()
+    api_response = client.get_head_to_head(
+        team_a_id=team_a_id,
+        team_b_id=team_b_id,
+        last=last,
+        force_refresh=force_refresh,
+    )
+
+    saved_count = save_head_to_head_matches(
+        api_response=api_response,
+        team_a_id=team_a_id,
+        team_b_id=team_b_id,
+    )
+
+    total_head_to_head_matches = count_head_to_head_matches()
+
+    return {
+        "source": "cache local" if client.last_cache_hit else "API-Football",
+        "saved_count": saved_count,
+        "total_head_to_head_matches": total_head_to_head_matches,
     }
