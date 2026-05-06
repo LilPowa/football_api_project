@@ -3,6 +3,7 @@ from typing import Any
 from app.database import init_db
 from app.repositories.football_repository import (
     count_countries,
+    count_fixture_statistics,
     count_fixtures,
     count_league_seasons,
     count_leagues,
@@ -10,6 +11,7 @@ from app.repositories.football_repository import (
     count_team_league_seasons,
     count_teams,
     save_countries,
+    save_fixture_statistics,
     save_fixtures,
     save_leagues,
     save_standings,
@@ -135,4 +137,29 @@ def sync_standings(
         "source": "cache local" if client.last_cache_hit else "API-Football",
         "saved_count": saved_count,
         "total_standings": total_standings,
+    }
+
+def sync_fixture_statistics(
+    fixture_id: int,
+    force_refresh: bool = False,
+) -> dict[str, Any]:
+    init_db()
+
+    client = CachedApiFootballClient()
+    api_response = client.get_fixture_statistics(
+        fixture_id=fixture_id,
+        force_refresh=force_refresh,
+    )
+
+    saved_count = save_fixture_statistics(
+        api_response=api_response,
+        fixture_id=fixture_id,
+    )
+
+    total_fixture_statistics = count_fixture_statistics()
+
+    return {
+        "source": "cache local" if client.last_cache_hit else "API-Football",
+        "saved_count": saved_count,
+        "total_fixture_statistics": total_fixture_statistics,
     }

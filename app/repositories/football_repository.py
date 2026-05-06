@@ -1217,3 +1217,148 @@ def get_standing_by_id(standing_id: int) -> dict[str, Any] | None:
     result["raw"] = json.loads(result.pop("raw_json"))
 
     return result
+
+# -------------------------------------------------------------------
+# Fixture statistics
+# -------------------------------------------------------------------
+
+def save_fixture_statistics(
+    api_response: dict[str, Any],
+    fixture_id: int,
+) -> int:
+    response_items = api_response.get("response", [])
+    updated_at = get_utc_now()
+    saved_count = 0
+
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            DELETE FROM fixture_statistics
+            WHERE fixture_id = ?
+            """,
+            (fixture_id,),
+        )
+
+        for item in response_items:
+            team = item.get("team", {})
+            statistics = item.get("statistics", [])
+
+            team_id = team.get("id")
+
+            if team_id is None:
+                continue
+
+            for statistic in statistics:
+                stat_type = statistic.get("type")
+                stat_value = statistic.get("value")
+
+                if not stat_type:
+                    continue
+
+                cursor.execute(
+                    """
+                    INSERT INTO fixture_statistics (
+                        fixture_id,
+                        team_id,
+                        team_name,
+                        team_logo,
+                        stat_type,
+                        stat_value,
+                        raw_json,
+                        updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(fixture_id, team_id, stat_type) DO UPDATE SET
+                        team_name = excluded.team_name,
+                        team_logo = excluded.team_logo,
+                        stat_value = excluded.stat_value,
+                        raw_json = excluded.raw_json,
+                        updated_at = excluded.updated_at
+                    """,
+                    (
+                        fixture_id,
+                        team_id,
+                        team.get("name"),
+                        team.get("logo"),
+                        stat_type,
+                        None if stat_value is None else str(stat_value),
+                        json.dumps(statistic, ensure_ascii=False),
+                        updated_at,
+                    ),
+                )
+
+                saved_count += 1
+
+        connection.commit()
+
+    return saved_count
+
+
+def count_fixture_statistics() -> int:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute("SELECT COUNT(*) AS total FROM fixture_statistics")
+        row = cursor.fetchone()
+
+        return int(row["total"])
+
+
+def list_fixture_statistics_by_fixture_id(
+    fixture_id: int,
+) -> list[dict[str, Any]]:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                id,
+                fixture_id,
+                team_id,
+                team_name,
+                team_logo,
+                stat_type,
+                stat_value,
+                updated_at
+            FROM fixture_statistics
+            WHERE fixture_id = ?
+            ORDER BY team_name ASC, stat_type ASC
+            """,
+            (fixture_id,),
+        )
+
+        rows = cursor.fetchall()
+
+    return [dict(row) for row in rows]
+
+
+def get_fixture_statistics_as_comparison(
+    fixture_id: int,
+) -> list[dict[str, Any]]:
+    statistics = list_fixture_statistics_by_fixture_id(fixture_id)
+
+    if not statistics:
+        return []
+
+    teams = []
+    stat_map: dict[str, dict[str, Any]] = {}
+
+    for stat in statistics:
+        team_name = stat["team_name"]
+
+        if team_name not in teams:
+            teams.append(team_name)
+
+        stat_type = stat["stat_type"]
+
+        if stat_type not in stat_map:
+            stat_map[stat_type] = {
+                "Statistique": stat_type,
+            }
+
+        stat_map[stat_type][team_name] = stat["stat_value"]
+
+    return list(stat_map.values())

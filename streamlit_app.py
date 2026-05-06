@@ -6,12 +6,14 @@ from app.database import init_db
 from app.repositories.api_cache_repository import count_cache_entries
 from app.repositories.football_repository import (
     count_countries,
+    count_fixture_statistics,
     count_fixtures,
     count_league_seasons,
     count_leagues,
     count_standings,
     count_teams,
     get_fixture_by_id,
+    get_fixture_statistics_as_comparison,
     get_league_by_id,
     get_standing_by_id,
     list_all_countries,
@@ -24,10 +26,11 @@ from app.repositories.football_repository import (
 )
 from app.services.sync_service import (
     sync_countries,
+    sync_fixture_statistics,
     sync_fixtures,
     sync_leagues,
+    sync_standings,
     sync_teams,
-    sync_standings
 )
 
 APP_VERSION = "0.2.0"
@@ -103,15 +106,16 @@ def render_sync_buttons() -> None:
 def render_metrics() -> None:
     st.subheader("État de la base locale")
 
-    col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
+    col1, col2, col3, col4, col5, col6, col7, col8 = st.columns(8)
 
     col1.metric("Pays", count_countries())
     col2.metric("Ligues", count_leagues())
     col3.metric("Saisons", count_league_seasons())
     col4.metric("Équipes", count_teams())
     col5.metric("Matchs", count_fixtures())
-    col6.metric("Classements", count_standings())
-    col7.metric("Cache API", count_cache_entries())
+    col6.metric("Stats matchs", count_fixture_statistics())
+    col7.metric("Classements", count_standings())
+    col8.metric("Cache API", count_cache_entries())
 
 def render_league_explorer() -> None:
     st.subheader("Exploration des ligues")
@@ -346,6 +350,72 @@ def render_team_explorer() -> None:
                     f"{team['updated_at']}"
                 )
 
+def render_fixture_statistics_section(fixture_id: int, status_short: str | None) -> None:
+    st.markdown("### Statistiques détaillées du match")
+
+    if status_short == "NS":
+        st.info(
+            "Ce match n'a pas encore commencé. "
+            "Les statistiques risquent d'être vides."
+        )
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button(
+            "Synchroniser les statistiques du match",
+            key=f"sync_fixture_stats_{fixture_id}",
+        ):
+            try:
+                with st.spinner("Synchronisation des statistiques du match..."):
+                    result = sync_fixture_statistics(
+                        fixture_id=fixture_id,
+                        force_refresh=False,
+                    )
+
+                st.success(
+                    f"Statistiques synchronisées depuis : {result['source']} — "
+                    f"{result['saved_count']} statistique(s) récupérée(s)."
+                )
+            except RuntimeError as error:
+                st.error("La synchronisation des statistiques a échoué.")
+                st.code(str(error))
+
+    with col2:
+        if st.button(
+            "Forcer refresh stats match",
+            key=f"force_sync_fixture_stats_{fixture_id}",
+        ):
+            try:
+                with st.spinner("Refresh des statistiques depuis API-Football..."):
+                    result = sync_fixture_statistics(
+                        fixture_id=fixture_id,
+                        force_refresh=True,
+                    )
+
+                st.warning(
+                    f"Statistiques rafraîchies depuis : {result['source']} — "
+                    f"{result['saved_count']} statistique(s) récupérée(s)."
+                )
+            except RuntimeError as error:
+                st.error("Le refresh des statistiques a échoué.")
+                st.code(str(error))
+
+    comparison = get_fixture_statistics_as_comparison(fixture_id)
+
+    if not comparison:
+        st.info(
+            "Aucune statistique en base pour ce match. "
+            "Clique sur le bouton de synchronisation ou choisis un match terminé."
+        )
+        return
+
+    st.dataframe(
+        comparison,
+        use_container_width=True,
+        hide_index=True,
+    )
+
 def render_fixture_explorer() -> None:
     st.subheader("Matchs par ligue et saison")
 
@@ -545,6 +615,13 @@ def render_fixture_explorer() -> None:
     fixture_detail = get_fixture_by_id(selected_fixture_id)
 
     if fixture_detail:
+        st.divider()
+
+        render_fixture_statistics_section(
+            fixture_id=selected_fixture_id,
+            status_short=fixture_detail.get("status_short"),
+        )
+
         with st.expander("Voir le JSON brut du match sélectionné"):
             st.code(
                 json.dumps(fixture_detail["raw"], indent=2, ensure_ascii=False),

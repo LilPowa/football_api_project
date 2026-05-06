@@ -124,3 +124,19 @@ class CachedApiFootballClient:
             cache_ttl_seconds=60 * 60,
             force_refresh=force_refresh,
         )
+    
+    def get_fixture_statistics(
+        self,
+        fixture_id: int,
+        force_refresh: bool = False,
+    ) -> dict[str, Any]:
+        params = {
+            "fixture": fixture_id,
+        }
+
+        return self.get(
+            endpoint="fixtures/statistics",
+            params=params,
+            cache_ttl_seconds=60 * 60,
+            force_refresh=force_refresh,
+        )

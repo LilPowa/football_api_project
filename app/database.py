@@ -213,5 +213,24 @@ def init_db() -> None:
             )
             """
         )
+        
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS fixture_statistics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                fixture_id INTEGER NOT NULL,
+                team_id INTEGER NOT NULL,
+                team_name TEXT,
+                team_logo TEXT,
+                stat_type TEXT NOT NULL,
+                stat_value TEXT,
+                raw_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(fixture_id, team_id, stat_type),
+                FOREIGN KEY (fixture_id) REFERENCES fixtures(fixture_id),
+                FOREIGN KEY (team_id) REFERENCES teams(team_id)
+            )
+            """
+        )
 
         connection.commit()
