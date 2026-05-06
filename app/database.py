@@ -55,4 +55,38 @@ def init_db() -> None:
             """
         )
 
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS leagues (
+                league_id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                type TEXT,
+                logo TEXT,
+                country_name TEXT,
+                country_code TEXT,
+                country_flag TEXT,
+                raw_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS league_seasons (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                league_id INTEGER NOT NULL,
+                season_year INTEGER NOT NULL,
+                start_date TEXT,
+                end_date TEXT,
+                current INTEGER NOT NULL DEFAULT 0,
+                coverage_json TEXT NOT NULL,
+                raw_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(league_id, season_year),
+                FOREIGN KEY (league_id) REFERENCES leagues(league_id)
+            )
+            """
+        )
+
         connection.commit()
