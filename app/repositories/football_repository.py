@@ -285,3 +285,95 @@ def list_league_seasons_by_league_id(league_id: int) -> list[dict[str, Any]]:
         results.append(item)
 
     return results
+
+def list_all_countries() -> list[dict[str, Any]]:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT name, code, flag, updated_at
+            FROM countries
+            ORDER BY name ASC
+            """
+        )
+
+        rows = cursor.fetchall()
+
+    return [dict(row) for row in rows]
+
+
+def list_leagues_filtered(
+    country_name: str | None = None,
+    search: str | None = None,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    query = """
+        SELECT
+            league_id,
+            name,
+            type,
+            logo,
+            country_name,
+            country_code,
+            country_flag,
+            updated_at
+        FROM leagues
+        WHERE 1 = 1
+    """
+
+    params: list[Any] = []
+
+    if country_name and country_name != "Tous":
+        query += " AND country_name = ?"
+        params.append(country_name)
+
+    if search:
+        query += " AND name LIKE ?"
+        params.append(f"%{search}%")
+
+    query += """
+        ORDER BY country_name ASC, name ASC
+        LIMIT ?
+    """
+    params.append(limit)
+
+    with get_connection() as connection:
+        cursor = connection.cursor()
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+
+    return [dict(row) for row in rows]
+
+
+def get_league_by_id(league_id: int) -> dict[str, Any] | None:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                league_id,
+                name,
+                type,
+                logo,
+                country_name,
+                country_code,
+                country_flag,
+                raw_json,
+                updated_at
+            FROM leagues
+            WHERE league_id = ?
+            """,
+            (league_id,),
+        )
+
+        row = cursor.fetchone()
+
+    if row is None:
+        return None
+
+    result = dict(row)
+    result["raw"] = json.loads(result.pop("raw_json"))
+
+    return result
