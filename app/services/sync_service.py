@@ -10,6 +10,8 @@ from app.repositories.football_repository import (
     count_team_league_seasons,
     count_teams,
     save_teams,
+    count_fixtures,
+    save_fixtures,
 )
 from app.services.cached_api_football_client import CachedApiFootballClient
 
@@ -75,4 +77,32 @@ def sync_teams(
         "saved_count": saved_count,
         "total_teams": total_teams,
         "total_team_links": total_team_links,
+    }
+
+def sync_fixtures(
+    league_id: int,
+    season_year: int,
+    force_refresh: bool = False,
+) -> dict[str, Any]:
+    init_db()
+
+    client = CachedApiFootballClient()
+    api_response = client.get_fixtures(
+        league_id=league_id,
+        season=season_year,
+        force_refresh=force_refresh,
+    )
+
+    saved_count = save_fixtures(
+        api_response=api_response,
+        league_id=league_id,
+        season_year=season_year,
+    )
+
+    total_fixtures = count_fixtures()
+
+    return {
+        "source": "cache local" if client.last_cache_hit else "API-Football",
+        "saved_count": saved_count,
+        "total_fixtures": total_fixtures,
     }

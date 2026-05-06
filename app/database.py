@@ -126,5 +126,49 @@ def init_db() -> None:
             )
             """
         )
+        
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS fixtures (
+                fixture_id INTEGER PRIMARY KEY,
+                league_id INTEGER,
+                season_year INTEGER,
+                round TEXT,
+                referee TEXT,
+                timezone TEXT,
+                fixture_date TEXT,
+                fixture_timestamp INTEGER,
+                venue_id INTEGER,
+                venue_name TEXT,
+                venue_city TEXT,
+                status_long TEXT,
+                status_short TEXT,
+                elapsed INTEGER,
+                home_team_id INTEGER,
+                home_team_name TEXT,
+                home_team_logo TEXT,
+                home_team_winner INTEGER,
+                away_team_id INTEGER,
+                away_team_name TEXT,
+                away_team_logo TEXT,
+                away_team_winner INTEGER,
+                home_goals INTEGER,
+                away_goals INTEGER,
+                halftime_home INTEGER,
+                halftime_away INTEGER,
+                fulltime_home INTEGER,
+                fulltime_away INTEGER,
+                extratime_home INTEGER,
+                extratime_away INTEGER,
+                penalty_home INTEGER,
+                penalty_away INTEGER,
+                raw_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (league_id) REFERENCES leagues(league_id),
+                FOREIGN KEY (home_team_id) REFERENCES teams(team_id),
+                FOREIGN KEY (away_team_id) REFERENCES teams(team_id)
+            )
+            """
+        )
 
         connection.commit()

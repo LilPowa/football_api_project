@@ -581,3 +581,362 @@ def get_team_by_id(team_id: int) -> dict[str, Any] | None:
     result["raw"] = json.loads(result.pop("raw_json"))
 
     return result
+
+# -------------------------------------------------------------------
+# Fixtures
+# -------------------------------------------------------------------
+
+def save_fixtures(
+    api_response: dict[str, Any],
+    league_id: int,
+    season_year: int,
+) -> int:
+    fixtures = api_response.get("response", [])
+    updated_at = get_utc_now()
+
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        for item in fixtures:
+            fixture = item.get("fixture", {})
+            league = item.get("league", {})
+            teams = item.get("teams", {})
+            goals = item.get("goals", {})
+            score = item.get("score", {})
+
+            venue = fixture.get("venue", {})
+            status = fixture.get("status", {})
+            home_team = teams.get("home", {})
+            away_team = teams.get("away", {})
+
+            halftime = score.get("halftime", {})
+            fulltime = score.get("fulltime", {})
+            extratime = score.get("extratime", {})
+            penalty = score.get("penalty", {})
+
+            fixture_id = fixture.get("id")
+
+            if fixture_id is None:
+                continue
+
+            cursor.execute(
+                """
+                INSERT INTO fixtures (
+                    fixture_id,
+                    league_id,
+                    season_year,
+                    round,
+                    referee,
+                    timezone,
+                    fixture_date,
+                    fixture_timestamp,
+                    venue_id,
+                    venue_name,
+                    venue_city,
+                    status_long,
+                    status_short,
+                    elapsed,
+                    home_team_id,
+                    home_team_name,
+                    home_team_logo,
+                    home_team_winner,
+                    away_team_id,
+                    away_team_name,
+                    away_team_logo,
+                    away_team_winner,
+                    home_goals,
+                    away_goals,
+                    halftime_home,
+                    halftime_away,
+                    fulltime_home,
+                    fulltime_away,
+                    extratime_home,
+                    extratime_away,
+                    penalty_home,
+                    penalty_away,
+                    raw_json,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(fixture_id) DO UPDATE SET
+                    league_id = excluded.league_id,
+                    season_year = excluded.season_year,
+                    round = excluded.round,
+                    referee = excluded.referee,
+                    timezone = excluded.timezone,
+                    fixture_date = excluded.fixture_date,
+                    fixture_timestamp = excluded.fixture_timestamp,
+                    venue_id = excluded.venue_id,
+                    venue_name = excluded.venue_name,
+                    venue_city = excluded.venue_city,
+                    status_long = excluded.status_long,
+                    status_short = excluded.status_short,
+                    elapsed = excluded.elapsed,
+                    home_team_id = excluded.home_team_id,
+                    home_team_name = excluded.home_team_name,
+                    home_team_logo = excluded.home_team_logo,
+                    home_team_winner = excluded.home_team_winner,
+                    away_team_id = excluded.away_team_id,
+                    away_team_name = excluded.away_team_name,
+                    away_team_logo = excluded.away_team_logo,
+                    away_team_winner = excluded.away_team_winner,
+                    home_goals = excluded.home_goals,
+                    away_goals = excluded.away_goals,
+                    halftime_home = excluded.halftime_home,
+                    halftime_away = excluded.halftime_away,
+                    fulltime_home = excluded.fulltime_home,
+                    fulltime_away = excluded.fulltime_away,
+                    extratime_home = excluded.extratime_home,
+                    extratime_away = excluded.extratime_away,
+                    penalty_home = excluded.penalty_home,
+                    penalty_away = excluded.penalty_away,
+                    raw_json = excluded.raw_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    fixture_id,
+                    league.get("id") or league_id,
+                    league.get("season") or season_year,
+                    league.get("round"),
+                    fixture.get("referee"),
+                    fixture.get("timezone"),
+                    fixture.get("date"),
+                    fixture.get("timestamp"),
+                    venue.get("id"),
+                    venue.get("name"),
+                    venue.get("city"),
+                    status.get("long"),
+                    status.get("short"),
+                    status.get("elapsed"),
+                    home_team.get("id"),
+                    home_team.get("name"),
+                    home_team.get("logo"),
+                    1 if home_team.get("winner") else 0 if home_team.get("winner") is False else None,
+                    away_team.get("id"),
+                    away_team.get("name"),
+                    away_team.get("logo"),
+                    1 if away_team.get("winner") else 0 if away_team.get("winner") is False else None,
+                    goals.get("home"),
+                    goals.get("away"),
+                    halftime.get("home"),
+                    halftime.get("away"),
+                    fulltime.get("home"),
+                    fulltime.get("away"),
+                    extratime.get("home"),
+                    extratime.get("away"),
+                    penalty.get("home"),
+                    penalty.get("away"),
+                    json.dumps(item, ensure_ascii=False),
+                    updated_at,
+                ),
+            )
+
+        connection.commit()
+
+    return len(fixtures)
+
+
+def count_fixtures() -> int:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute("SELECT COUNT(*) AS total FROM fixtures")
+        row = cursor.fetchone()
+
+        return int(row["total"])
+
+
+def list_fixtures_by_league_season(
+    league_id: int,
+    season_year: int,
+    limit: int = 200,
+) -> list[dict[str, Any]]:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                fixture_id,
+                league_id,
+                season_year,
+                round,
+                fixture_date,
+                status_long,
+                status_short,
+                elapsed,
+                home_team_id,
+                home_team_name,
+                home_team_logo,
+                away_team_id,
+                away_team_name,
+                away_team_logo,
+                home_goals,
+                away_goals,
+                venue_name,
+                venue_city,
+                updated_at
+            FROM fixtures
+            WHERE league_id = ?
+            AND season_year = ?
+            ORDER BY fixture_timestamp ASC
+            LIMIT ?
+            """,
+            (league_id, season_year, limit),
+        )
+
+        rows = cursor.fetchall()
+
+    return [dict(row) for row in rows]
+
+
+def list_fixture_teams_filter(
+    league_id: int,
+    season_year: int,
+) -> list[dict[str, Any]]:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT DISTINCT
+                home_team_id AS team_id,
+                home_team_name AS team_name
+            FROM fixtures
+            WHERE league_id = ?
+            AND season_year = ?
+            AND home_team_id IS NOT NULL
+
+            UNION
+
+            SELECT DISTINCT
+                away_team_id AS team_id,
+                away_team_name AS team_name
+            FROM fixtures
+            WHERE league_id = ?
+            AND season_year = ?
+            AND away_team_id IS NOT NULL
+
+            ORDER BY team_name ASC
+            """,
+            (league_id, season_year, league_id, season_year),
+        )
+
+        rows = cursor.fetchall()
+
+    return [dict(row) for row in rows]
+
+
+def list_fixtures_filtered(
+    league_id: int,
+    season_year: int,
+    team_id: int | None = None,
+    status_short: str | None = None,
+    limit: int = 200,
+) -> list[dict[str, Any]]:
+    query = """
+        SELECT
+            fixture_id,
+            league_id,
+            season_year,
+            round,
+            fixture_date,
+            status_long,
+            status_short,
+            elapsed,
+            home_team_id,
+            home_team_name,
+            home_team_logo,
+            away_team_id,
+            away_team_name,
+            away_team_logo,
+            home_goals,
+            away_goals,
+            venue_name,
+            venue_city,
+            updated_at
+        FROM fixtures
+        WHERE league_id = ?
+        AND season_year = ?
+    """
+
+    params: list[Any] = [league_id, season_year]
+
+    if team_id is not None:
+        query += " AND (home_team_id = ? OR away_team_id = ?)"
+        params.extend([team_id, team_id])
+
+    if status_short and status_short != "Tous":
+        query += " AND status_short = ?"
+        params.append(status_short)
+
+    query += """
+        ORDER BY fixture_timestamp ASC
+        LIMIT ?
+    """
+    params.append(limit)
+
+    with get_connection() as connection:
+        cursor = connection.cursor()
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+
+    return [dict(row) for row in rows]
+
+
+def get_fixture_by_id(fixture_id: int) -> dict[str, Any] | None:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                fixture_id,
+                league_id,
+                season_year,
+                round,
+                referee,
+                timezone,
+                fixture_date,
+                fixture_timestamp,
+                venue_id,
+                venue_name,
+                venue_city,
+                status_long,
+                status_short,
+                elapsed,
+                home_team_id,
+                home_team_name,
+                home_team_logo,
+                home_team_winner,
+                away_team_id,
+                away_team_name,
+                away_team_logo,
+                away_team_winner,
+                home_goals,
+                away_goals,
+                halftime_home,
+                halftime_away,
+                fulltime_home,
+                fulltime_away,
+                extratime_home,
+                extratime_away,
+                penalty_home,
+                penalty_away,
+                raw_json,
+                updated_at
+            FROM fixtures
+            WHERE fixture_id = ?
+            """,
+            (fixture_id,),
+        )
+
+        row = cursor.fetchone()
+
+    if row is None:
+        return None
+
+    result = dict(row)
+    result["raw"] = json.loads(result.pop("raw_json"))
+
+    return result

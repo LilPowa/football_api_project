@@ -6,19 +6,27 @@ from app.database import init_db
 from app.repositories.api_cache_repository import count_cache_entries
 from app.repositories.football_repository import (
     count_countries,
+    count_fixtures,
     count_league_seasons,
     count_leagues,
     count_teams,
+    get_fixture_by_id,
     get_league_by_id,
     list_all_countries,
+    list_fixture_teams_filter,
+    list_fixtures_filtered,
     list_league_seasons_by_league_id,
     list_leagues_filtered,
     list_teams_by_league_season,
 )
-from app.services.sync_service import sync_countries, sync_leagues, sync_teams
+from app.services.sync_service import (
+    sync_countries,
+    sync_fixtures,
+    sync_leagues,
+    sync_teams,
+)
 
-
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.2.0"
 
 
 st.set_page_config(
@@ -88,18 +96,17 @@ def render_sync_buttons() -> None:
                 f"{result['total_seasons']} saisons."
             )
 
-
 def render_metrics() -> None:
     st.subheader("État de la base locale")
 
-    col1, col2, col3, col4, col5 = st.columns(5)
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
 
     col1.metric("Pays", count_countries())
     col2.metric("Ligues", count_leagues())
     col3.metric("Saisons", count_league_seasons())
     col4.metric("Équipes", count_teams())
-    col5.metric("Entrées cache API", count_cache_entries())
-
+    col5.metric("Matchs", count_fixtures())
+    col6.metric("Entrées cache API", count_cache_entries())
 
 def render_league_explorer() -> None:
     st.subheader("Exploration des ligues")
@@ -334,6 +341,211 @@ def render_team_explorer() -> None:
                     f"{team['updated_at']}"
                 )
 
+def render_fixture_explorer() -> None:
+    st.subheader("Matchs par ligue et saison")
+
+    leagues = list_leagues_filtered(limit=500)
+
+    if not leagues:
+        st.info("Aucune ligue disponible. Synchronise d'abord les ligues.")
+        return
+
+    league_options = {
+        f"[{league['league_id']}] {league['name']} — {league['country_name']}": league["league_id"]
+        for league in leagues
+    }
+
+    selected_league_label = st.selectbox(
+        "Choisir une ligue pour les matchs",
+        list(league_options.keys()),
+        key="fixtures_league_select",
+    )
+
+    selected_league_id = league_options[selected_league_label]
+    seasons = list_league_seasons_by_league_id(selected_league_id)
+
+    if not seasons:
+        st.info("Aucune saison disponible pour cette ligue.")
+        return
+
+    season_options = {
+        f"{season['season_year']} {'(courante)' if season['current'] else ''}": season["season_year"]
+        for season in seasons
+    }
+
+    selected_season_label = st.selectbox(
+        "Choisir une saison pour les matchs",
+        list(season_options.keys()),
+        key="fixtures_season_select",
+    )
+
+    selected_season_year = season_options[selected_season_label]
+
+    st.info(
+        "Avec le plan Free, certaines saisons peuvent être refusées par l'API. "
+        "Si une synchronisation ne retourne rien ou affiche une erreur, choisis "
+        "une autre saison disponible."
+    )
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("Synchroniser les matchs", key="sync_fixtures_button"):
+            try:
+                with st.spinner("Synchronisation des matchs..."):
+                    result = sync_fixtures(
+                        league_id=selected_league_id,
+                        season_year=selected_season_year,
+                        force_refresh=False,
+                    )
+
+                st.success(
+                    f"Matchs synchronisés depuis : {result['source']} — "
+                    f"{result['saved_count']} match(s) récupéré(s)."
+                )
+            except RuntimeError as error:
+                st.error("La synchronisation des matchs a échoué.")
+                st.code(str(error))
+                st.warning(
+                    "Ce n'est pas forcément un problème de code : ton plan Free "
+                    "peut limiter certaines saisons."
+                )
+
+    with col2:
+        if st.button("Forcer refresh matchs", key="force_sync_fixtures_button"):
+            try:
+                with st.spinner("Refresh des matchs depuis API-Football..."):
+                    result = sync_fixtures(
+                        league_id=selected_league_id,
+                        season_year=selected_season_year,
+                        force_refresh=True,
+                    )
+
+                st.warning(
+                    f"Matchs rafraîchis depuis : {result['source']} — "
+                    f"{result['saved_count']} match(s) récupéré(s)."
+                )
+            except RuntimeError as error:
+                st.error("Le refresh des matchs a échoué.")
+                st.code(str(error))
+                st.warning(
+                    "Essaie une autre saison si ton plan Free refuse celle-ci."
+                )
+
+    teams = list_fixture_teams_filter(
+        league_id=selected_league_id,
+        season_year=selected_season_year,
+    )
+
+    team_options = {"Tous": None}
+
+    for team in teams:
+        team_options[team["team_name"]] = team["team_id"]
+
+    col_filter_1, col_filter_2, col_filter_3 = st.columns(3)
+
+    with col_filter_1:
+        selected_team_name = st.selectbox(
+            "Filtrer par équipe",
+            list(team_options.keys()),
+            key="fixtures_team_filter",
+        )
+
+    with col_filter_2:
+        selected_status = st.selectbox(
+            "Filtrer par statut",
+            ["Tous", "NS", "1H", "HT", "2H", "FT", "AET", "PEN", "PST", "CANC"],
+            key="fixtures_status_filter",
+        )
+
+    with col_filter_3:
+        limit = st.number_input(
+            "Nombre de matchs affichés",
+            min_value=10,
+            max_value=500,
+            value=100,
+            step=10,
+            key="fixtures_limit",
+        )
+
+    selected_team_id = team_options[selected_team_name]
+
+    fixtures = list_fixtures_filtered(
+        league_id=selected_league_id,
+        season_year=selected_season_year,
+        team_id=selected_team_id,
+        status_short=selected_status,
+        limit=int(limit),
+    )
+
+    st.write(
+        f"{len(fixtures)} match(s) affiché(s) pour cette ligue et cette saison."
+    )
+
+    if not fixtures:
+        st.info(
+            "Aucun match en base pour cette sélection. Lance une synchronisation "
+            "ou choisis une autre saison."
+        )
+        return
+
+    fixture_options = {
+        (
+            f"[{fixture['fixture_id']}] "
+            f"{fixture['home_team_name']} vs {fixture['away_team_name']} "
+            f"— {fixture['fixture_date']}"
+        ): fixture["fixture_id"]
+        for fixture in fixtures
+    }
+
+    selected_fixture_label = st.selectbox(
+        "Sélectionner un match pour voir le détail JSON",
+        list(fixture_options.keys()),
+        key="fixture_detail_select",
+    )
+
+    selected_fixture_id = fixture_options[selected_fixture_label]
+
+    for fixture in fixtures:
+        with st.container(border=True):
+            col_home, col_score, col_away, col_meta = st.columns([3, 2, 3, 3])
+
+            with col_home:
+                if fixture.get("home_team_logo"):
+                    st.image(fixture["home_team_logo"], width=50)
+                st.markdown(f"**{fixture['home_team_name']}**")
+
+            with col_score:
+                home_goals = fixture["home_goals"]
+                away_goals = fixture["away_goals"]
+
+                if home_goals is not None and away_goals is not None:
+                    st.markdown(f"### {home_goals} - {away_goals}")
+                else:
+                    st.markdown("### À venir")
+
+                st.write(f"Statut : {fixture['status_short']}")
+
+            with col_away:
+                if fixture.get("away_team_logo"):
+                    st.image(fixture["away_team_logo"], width=50)
+                st.markdown(f"**{fixture['away_team_name']}**")
+
+            with col_meta:
+                st.write(f"**Date :** {fixture['fixture_date']}")
+                st.write(f"**Journée / tour :** {fixture['round'] or 'N/A'}")
+                st.write(f"**Stade :** {fixture['venue_name'] or 'N/A'}")
+                st.write(f"**Ville :** {fixture['venue_city'] or 'N/A'}")
+
+    fixture_detail = get_fixture_by_id(selected_fixture_id)
+
+    if fixture_detail:
+        with st.expander("Voir le JSON brut du match sélectionné"):
+            st.code(
+                json.dumps(fixture_detail["raw"], indent=2, ensure_ascii=False),
+                language="json",
+            )
+
 def main() -> None:
     initialize_app()
     render_header()
@@ -344,6 +556,8 @@ def main() -> None:
     render_league_explorer()
     st.divider()
     render_team_explorer()
+    st.divider()
+    render_fixture_explorer()
 
 if __name__ == "__main__":
     main()
