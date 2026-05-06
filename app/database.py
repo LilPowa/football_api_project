@@ -88,5 +88,43 @@ def init_db() -> None:
             )
             """
         )
+        
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS teams (
+                team_id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                code TEXT,
+                country TEXT,
+                founded INTEGER,
+                national INTEGER NOT NULL DEFAULT 0,
+                logo TEXT,
+                venue_id INTEGER,
+                venue_name TEXT,
+                venue_address TEXT,
+                venue_city TEXT,
+                venue_capacity INTEGER,
+                venue_surface TEXT,
+                venue_image TEXT,
+                raw_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS team_league_seasons (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                team_id INTEGER NOT NULL,
+                league_id INTEGER NOT NULL,
+                season_year INTEGER NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(team_id, league_id, season_year),
+                FOREIGN KEY (team_id) REFERENCES teams(team_id),
+                FOREIGN KEY (league_id) REFERENCES leagues(league_id)
+            )
+            """
+        )
 
         connection.commit()

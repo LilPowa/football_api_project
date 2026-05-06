@@ -377,3 +377,207 @@ def get_league_by_id(league_id: int) -> dict[str, Any] | None:
     result["raw"] = json.loads(result.pop("raw_json"))
 
     return result
+
+# -------------------------------------------------------------------
+# Teams
+# -------------------------------------------------------------------
+
+def save_teams(
+    api_response: dict[str, Any],
+    league_id: int,
+    season_year: int,
+) -> int:
+    teams = api_response.get("response", [])
+    updated_at = get_utc_now()
+
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        for item in teams:
+            team = item.get("team", {})
+            venue = item.get("venue", {})
+
+            team_id = team.get("id")
+
+            if team_id is None:
+                continue
+
+            cursor.execute(
+                """
+                INSERT INTO teams (
+                    team_id,
+                    name,
+                    code,
+                    country,
+                    founded,
+                    national,
+                    logo,
+                    venue_id,
+                    venue_name,
+                    venue_address,
+                    venue_city,
+                    venue_capacity,
+                    venue_surface,
+                    venue_image,
+                    raw_json,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(team_id) DO UPDATE SET
+                    name = excluded.name,
+                    code = excluded.code,
+                    country = excluded.country,
+                    founded = excluded.founded,
+                    national = excluded.national,
+                    logo = excluded.logo,
+                    venue_id = excluded.venue_id,
+                    venue_name = excluded.venue_name,
+                    venue_address = excluded.venue_address,
+                    venue_city = excluded.venue_city,
+                    venue_capacity = excluded.venue_capacity,
+                    venue_surface = excluded.venue_surface,
+                    venue_image = excluded.venue_image,
+                    raw_json = excluded.raw_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    team_id,
+                    team.get("name"),
+                    team.get("code"),
+                    team.get("country"),
+                    team.get("founded"),
+                    1 if team.get("national") else 0,
+                    team.get("logo"),
+                    venue.get("id"),
+                    venue.get("name"),
+                    venue.get("address"),
+                    venue.get("city"),
+                    venue.get("capacity"),
+                    venue.get("surface"),
+                    venue.get("image"),
+                    json.dumps(item, ensure_ascii=False),
+                    updated_at,
+                ),
+            )
+
+            cursor.execute(
+                """
+                INSERT INTO team_league_seasons (
+                    team_id,
+                    league_id,
+                    season_year,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(team_id, league_id, season_year) DO UPDATE SET
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    team_id,
+                    league_id,
+                    season_year,
+                    updated_at,
+                ),
+            )
+
+        connection.commit()
+
+    return len(teams)
+
+
+def count_teams() -> int:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute("SELECT COUNT(*) AS total FROM teams")
+        row = cursor.fetchone()
+
+        return int(row["total"])
+
+
+def count_team_league_seasons() -> int:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute("SELECT COUNT(*) AS total FROM team_league_seasons")
+        row = cursor.fetchone()
+
+        return int(row["total"])
+
+
+def list_teams_by_league_season(
+    league_id: int,
+    season_year: int,
+) -> list[dict[str, Any]]:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                t.team_id,
+                t.name,
+                t.code,
+                t.country,
+                t.founded,
+                t.national,
+                t.logo,
+                t.venue_id,
+                t.venue_name,
+                t.venue_city,
+                t.venue_capacity,
+                tls.league_id,
+                tls.season_year,
+                tls.updated_at
+            FROM team_league_seasons tls
+            JOIN teams t ON t.team_id = tls.team_id
+            WHERE tls.league_id = ?
+            AND tls.season_year = ?
+            ORDER BY t.name ASC
+            """,
+            (league_id, season_year),
+        )
+
+        rows = cursor.fetchall()
+
+    return [dict(row) for row in rows]
+
+
+def get_team_by_id(team_id: int) -> dict[str, Any] | None:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                team_id,
+                name,
+                code,
+                country,
+                founded,
+                national,
+                logo,
+                venue_id,
+                venue_name,
+                venue_address,
+                venue_city,
+                venue_capacity,
+                venue_surface,
+                venue_image,
+                raw_json,
+                updated_at
+            FROM teams
+            WHERE team_id = ?
+            """,
+            (team_id,),
+        )
+
+        row = cursor.fetchone()
+
+    if row is None:
+        return None
+
+    result = dict(row)
+    result["raw"] = json.loads(result.pop("raw_json"))
+
+    return result

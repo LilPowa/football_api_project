@@ -8,12 +8,14 @@ from app.repositories.football_repository import (
     count_countries,
     count_league_seasons,
     count_leagues,
+    count_teams,
     get_league_by_id,
     list_all_countries,
     list_league_seasons_by_league_id,
     list_leagues_filtered,
+    list_teams_by_league_season,
 )
-from app.services.sync_service import sync_countries, sync_leagues
+from app.services.sync_service import sync_countries, sync_leagues, sync_teams
 
 
 APP_VERSION = "0.1.0"
@@ -90,12 +92,13 @@ def render_sync_buttons() -> None:
 def render_metrics() -> None:
     st.subheader("État de la base locale")
 
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
 
     col1.metric("Pays", count_countries())
     col2.metric("Ligues", count_leagues())
     col3.metric("Saisons", count_league_seasons())
-    col4.metric("Entrées cache API", count_cache_entries())
+    col4.metric("Équipes", count_teams())
+    col5.metric("Entrées cache API", count_cache_entries())
 
 
 def render_league_explorer() -> None:
@@ -217,6 +220,119 @@ def render_league_explorer() -> None:
             language="json",
         )
 
+def render_team_explorer() -> None:
+    st.subheader("Équipes par ligue et saison")
+
+    leagues = list_leagues_filtered(limit=500)
+
+    if not leagues:
+        st.info("Aucune ligue disponible. Synchronise d'abord les ligues.")
+        return
+
+    league_options = {
+        f"[{league['league_id']}] {league['name']} — {league['country_name']}": league["league_id"]
+        for league in leagues
+    }
+
+    selected_league_label = st.selectbox(
+        "Choisir une ligue",
+        list(league_options.keys()),
+        key="teams_league_select",
+    )
+
+    selected_league_id = league_options[selected_league_label]
+    seasons = list_league_seasons_by_league_id(selected_league_id)
+
+    if not seasons:
+        st.info("Aucune saison disponible pour cette ligue.")
+        return
+
+    season_options = {
+        f"{season['season_year']} {'(courante)' if season['current'] else ''}": season["season_year"]
+        for season in seasons
+    }
+
+    selected_season_label = st.selectbox(
+        "Choisir une saison",
+        list(season_options.keys()),
+        key="teams_season_select",
+    )
+
+    selected_season_year = season_options[selected_season_label]
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("Synchroniser les équipes", key="sync_teams_button"):
+            with st.spinner("Synchronisation des équipes..."):
+                result = sync_teams(
+                    league_id=selected_league_id,
+                    season_year=selected_season_year,
+                    force_refresh=False,
+                )
+
+            st.success(
+                f"Équipes synchronisées depuis : {result['source']} — "
+                f"{result['saved_count']} équipe(s) récupérée(s)."
+            )
+
+    with col2:
+        if st.button("Forcer refresh équipes", key="force_sync_teams_button"):
+            with st.spinner("Refresh des équipes depuis API-Football..."):
+                result = sync_teams(
+                    league_id=selected_league_id,
+                    season_year=selected_season_year,
+                    force_refresh=True,
+                )
+
+            st.warning(
+                f"Équipes rafraîchies depuis : {result['source']} — "
+                f"{result['saved_count']} équipe(s) récupérée(s)."
+            )
+
+    teams = list_teams_by_league_season(
+        league_id=selected_league_id,
+        season_year=selected_season_year,
+    )
+
+    st.write(
+        f"{len(teams)} équipe(s) trouvée(s) pour cette ligue et cette saison."
+    )
+
+    if not teams:
+        st.info("Aucune équipe en base pour cette sélection.")
+        return
+
+    for team in teams:
+        with st.container(border=True):
+            col_logo, col_info, col_venue = st.columns([1, 3, 3])
+
+            with col_logo:
+                if team.get("logo"):
+                    st.image(team["logo"], width=80)
+
+            with col_info:
+                st.markdown(f"### {team['name']}")
+                st.write(f"**ID API :** {team['team_id']}")
+                st.write(f"**Code :** {team['code'] or 'N/A'}")
+                st.write(f"**Pays :** {team['country'] or 'N/A'}")
+                st.write(f"**Fondé en :** {team['founded'] or 'N/A'}")
+                st.write(
+                    f"**Équipe nationale :** "
+                    f"{'Oui' if team['national'] else 'Non'}"
+                )
+
+            with col_venue:
+                st.write(f"**Stade :** {team['venue_name'] or 'N/A'}")
+                st.write(f"**Ville :** {team['venue_city'] or 'N/A'}")
+                st.write(
+                    f"**Capacité :** "
+                    f"{team['venue_capacity'] or 'N/A'}"
+                )
+                st.write(
+                    f"**Dernière mise à jour locale :** "
+                    f"{team['updated_at']}"
+                )
 
 def main() -> None:
     initialize_app()
@@ -226,7 +342,8 @@ def main() -> None:
     render_metrics()
     st.divider()
     render_league_explorer()
-
+    st.divider()
+    render_team_explorer()
 
 if __name__ == "__main__":
     main()
