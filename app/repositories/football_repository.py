@@ -2626,3 +2626,225 @@ def get_head_to_head_summary(
         "total_goals": total_goals,
         "average_goals": average_goals,
     }
+
+# -------------------------------------------------------------------
+# Players squads
+# -------------------------------------------------------------------
+
+def save_player_squad(
+    api_response: dict[str, Any],
+    team_id: int,
+) -> int:
+    response_items = api_response.get("response", [])
+    updated_at = get_utc_now()
+    saved_count = 0
+
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            DELETE FROM team_squad_players
+            WHERE team_id = ?
+            """,
+            (team_id,),
+        )
+
+        for item in response_items:
+            team = item.get("team", {})
+            players = item.get("players", [])
+
+            api_team_id = team.get("id") or team_id
+
+            for player in players:
+                player_id = player.get("id")
+
+                if player_id is None:
+                    continue
+
+                cursor.execute(
+                    """
+                    INSERT INTO players (
+                        player_id,
+                        name,
+                        age,
+                        photo,
+                        raw_json,
+                        updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(player_id) DO UPDATE SET
+                        name = excluded.name,
+                        age = excluded.age,
+                        photo = excluded.photo,
+                        raw_json = excluded.raw_json,
+                        updated_at = excluded.updated_at
+                    """,
+                    (
+                        player_id,
+                        player.get("name"),
+                        player.get("age"),
+                        player.get("photo"),
+                        json.dumps(player, ensure_ascii=False),
+                        updated_at,
+                    ),
+                )
+
+                cursor.execute(
+                    """
+                    INSERT INTO team_squad_players (
+                        team_id,
+                        player_id,
+                        player_name,
+                        player_age,
+                        player_number,
+                        player_position,
+                        player_photo,
+                        raw_json,
+                        updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(team_id, player_id) DO UPDATE SET
+                        player_name = excluded.player_name,
+                        player_age = excluded.player_age,
+                        player_number = excluded.player_number,
+                        player_position = excluded.player_position,
+                        player_photo = excluded.player_photo,
+                        raw_json = excluded.raw_json,
+                        updated_at = excluded.updated_at
+                    """,
+                    (
+                        api_team_id,
+                        player_id,
+                        player.get("name"),
+                        player.get("age"),
+                        player.get("number"),
+                        player.get("position"),
+                        player.get("photo"),
+                        json.dumps(player, ensure_ascii=False),
+                        updated_at,
+                    ),
+                )
+
+                saved_count += 1
+
+        connection.commit()
+
+    return saved_count
+
+
+def count_players() -> int:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute("SELECT COUNT(*) AS total FROM players")
+        row = cursor.fetchone()
+
+        return int(row["total"])
+
+
+def count_team_squad_players() -> int:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute("SELECT COUNT(*) AS total FROM team_squad_players")
+        row = cursor.fetchone()
+
+        return int(row["total"])
+
+
+def list_squad_players_by_team_id(
+    team_id: int,
+) -> list[dict[str, Any]]:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                id,
+                team_id,
+                player_id,
+                player_name,
+                player_age,
+                player_number,
+                player_position,
+                player_photo,
+                updated_at
+            FROM team_squad_players
+            WHERE team_id = ?
+            ORDER BY
+                player_position ASC,
+                player_number ASC,
+                player_name ASC
+            """,
+            (team_id,),
+        )
+
+        rows = cursor.fetchall()
+
+    return [dict(row) for row in rows]
+
+
+def get_player_by_id(player_id: int) -> dict[str, Any] | None:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                player_id,
+                name,
+                age,
+                photo,
+                raw_json,
+                updated_at
+            FROM players
+            WHERE player_id = ?
+            """,
+            (player_id,),
+        )
+
+        row = cursor.fetchone()
+
+    if row is None:
+        return None
+
+    result = dict(row)
+    result["raw"] = json.loads(result.pop("raw_json"))
+
+    return result
+
+
+def get_squad_player_by_id(squad_player_id: int) -> dict[str, Any] | None:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                id,
+                team_id,
+                player_id,
+                player_name,
+                player_age,
+                player_number,
+                player_position,
+                player_photo,
+                raw_json,
+                updated_at
+            FROM team_squad_players
+            WHERE id = ?
+            """,
+            (squad_player_id,),
+        )
+
+        row = cursor.fetchone()
+
+    if row is None:
+        return None
+
+    result = dict(row)
+    result["raw"] = json.loads(result.pop("raw_json"))
+
+    return result

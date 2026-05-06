@@ -40,6 +40,11 @@ from app.repositories.football_repository import (
     list_leagues_filtered,
     list_standings_by_league_season,
     list_teams_by_league_season,
+    count_players,
+    count_team_squad_players,
+    get_player_by_id,
+    get_squad_player_by_id,
+    list_squad_players_by_team_id,
 )
 from app.services.sync_service import (
     sync_countries,
@@ -52,6 +57,7 @@ from app.services.sync_service import (
     sync_leagues,
     sync_standings,
     sync_teams,
+    sync_player_squad,
 )
 
 APP_VERSION = "0.2.1"
@@ -92,6 +98,8 @@ def render_sidebar() -> None:
         st.metric("Événements", count_fixture_events())
         st.metric("Compositions", count_fixture_lineups())
         st.metric("Stats joueurs", count_fixture_player_statistics())
+        st.metric("Joueurs", count_players())
+        st.metric("Effectifs", count_team_squad_players())
         st.metric("Head-to-head", count_head_to_head_matches())
         st.metric("Cache API", count_cache_entries())
 
@@ -196,9 +204,9 @@ def render_admin_page() -> None:
     col9, col10, col11, col12 = st.columns(4)
 
     col9.metric("Head-to-head", count_head_to_head_matches())
-    col10.metric("Équipes", count_teams())
-    col11.metric("Ligues", count_leagues())
-    col12.metric("Pays", count_countries())
+    col10.metric("Joueurs", count_players())
+    col11.metric("Effectifs", count_team_squad_players())
+    col12.metric("Équipes", count_teams())
 
     st.info(
         "Pour l'instant, le cache est fonctionnel mais pas encore administrable "
@@ -317,15 +325,15 @@ def render_metrics() -> None:
 
     row3_col1.metric("Joueurs lineups", count_fixture_lineup_players())
     row3_col2.metric("Stats joueurs", count_fixture_player_statistics())
-    row3_col3.metric("Classements", count_standings())
-    row3_col4.metric("Head-to-head", count_head_to_head_matches())
+    row3_col3.metric("Joueurs", count_players())
+    row3_col4.metric("Effectifs", count_team_squad_players())
 
     row4_col1, row4_col2, row4_col3, row4_col4 = st.columns(4)
 
-    row4_col1.metric("Cache API", count_cache_entries())
-    row4_col2.metric("À venir", "Squads")
-    row4_col3.metric("À venir", "Predictions")
-    row4_col4.metric("À venir", "Odds")
+    row4_col1.metric("Classements", count_standings())
+    row4_col2.metric("Head-to-head", count_head_to_head_matches())
+    row4_col3.metric("Cache API", count_cache_entries())
+    row4_col4.metric("À venir", "Predictions")
 
 def render_league_explorer() -> None:
     st.subheader("Exploration des ligues")
@@ -1746,16 +1754,218 @@ def render_head_to_head_page() -> None:
                 language="json",
             )
 
+def render_players_page() -> None:
+    st.subheader("Effectifs et joueurs")
+
+    st.write(
+        "Cette page permet de synchroniser et d'afficher l'effectif d'une équipe."
+    )
+
+    leagues = list_leagues_filtered(limit=500)
+
+    if not leagues:
+        st.info("Aucune ligue disponible. Synchronise d'abord les ligues.")
+        return
+
+    league_options = {
+        f"[{league['league_id']}] {league['name']} — {league['country_name']}": league["league_id"]
+        for league in leagues
+    }
+
+    selected_league_label = st.selectbox(
+        "Choisir une ligue",
+        list(league_options.keys()),
+        key="players_league_select",
+    )
+
+    selected_league_id = league_options[selected_league_label]
+    seasons = list_league_seasons_by_league_id(selected_league_id)
+
+    if not seasons:
+        st.info("Aucune saison disponible pour cette ligue.")
+        return
+
+    season_options = {
+        f"{season['season_year']} {'(courante)' if season['current'] else ''}": season["season_year"]
+        for season in seasons
+    }
+
+    selected_season_label = st.selectbox(
+        "Choisir une saison pour filtrer les équipes",
+        list(season_options.keys()),
+        key="players_season_select",
+    )
+
+    selected_season_year = season_options[selected_season_label]
+
+    teams = list_teams_by_league_season(
+        league_id=selected_league_id,
+        season_year=selected_season_year,
+    )
+
+    if not teams:
+        st.info(
+            "Aucune équipe disponible pour cette ligue/saison. "
+            "Va d'abord dans l'onglet Équipes et synchronise les équipes."
+        )
+        return
+
+    team_options = {
+        f"[{team['team_id']}] {team['name']}": team["team_id"]
+        for team in teams
+    }
+
+    selected_team_label = st.selectbox(
+        "Choisir une équipe",
+        list(team_options.keys()),
+        key="players_team_select",
+    )
+
+    selected_team_id = team_options[selected_team_label]
+
+    col_sync, col_force = st.columns(2)
+
+    with col_sync:
+        if st.button("Synchroniser l'effectif", key="sync_player_squad_button"):
+            try:
+                with st.spinner("Synchronisation de l'effectif..."):
+                    result = sync_player_squad(
+                        team_id=selected_team_id,
+                        force_refresh=False,
+                    )
+
+                st.success(
+                    f"Effectif synchronisé depuis : {result['source']} — "
+                    f"{result['saved_count']} joueur(s) récupéré(s)."
+                )
+            except RuntimeError as error:
+                st.error("La synchronisation de l'effectif a échoué.")
+                st.code(str(error))
+
+    with col_force:
+        if st.button("Forcer refresh effectif", key="force_player_squad_button"):
+            try:
+                with st.spinner("Refresh de l'effectif depuis API-Football..."):
+                    result = sync_player_squad(
+                        team_id=selected_team_id,
+                        force_refresh=True,
+                    )
+
+                st.warning(
+                    f"Effectif rafraîchi depuis : {result['source']} — "
+                    f"{result['saved_count']} joueur(s) récupéré(s)."
+                )
+            except RuntimeError as error:
+                st.error("Le refresh de l'effectif a échoué.")
+                st.code(str(error))
+
+    squad_players = list_squad_players_by_team_id(selected_team_id)
+
+    st.markdown("### Effectif")
+
+    if not squad_players:
+        st.info(
+            "Aucun joueur en base pour cette équipe. "
+            "Clique sur Synchroniser l'effectif."
+        )
+        return
+
+    positions = sorted(
+        {
+            player["player_position"] or "N/A"
+            for player in squad_players
+        }
+    )
+
+    selected_position = st.selectbox(
+        "Filtrer par poste",
+        ["Tous"] + positions,
+        key="players_position_filter",
+    )
+
+    filtered_players = squad_players
+
+    if selected_position != "Tous":
+        filtered_players = [
+            player
+            for player in squad_players
+            if (player["player_position"] or "N/A") == selected_position
+        ]
+
+    table_rows = []
+
+    for player in filtered_players:
+        table_rows.append(
+            {
+                "N°": player["player_number"],
+                "Joueur": player["player_name"],
+                "Âge": player["player_age"],
+                "Poste": player["player_position"],
+                "ID API": player["player_id"],
+            }
+        )
+
+    st.dataframe(
+        table_rows,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    player_options = {
+        f"#{player['player_number'] or 'N/A'} {player['player_name']}": player["id"]
+        for player in filtered_players
+    }
+
+    selected_player_label = st.selectbox(
+        "Voir le détail d'un joueur",
+        list(player_options.keys()),
+        key="squad_player_detail_select",
+    )
+
+    selected_squad_player_id = player_options[selected_player_label]
+    squad_player_detail = get_squad_player_by_id(selected_squad_player_id)
+
+    if squad_player_detail:
+        player_detail = get_player_by_id(squad_player_detail["player_id"])
+
+        col_photo, col_info = st.columns([1, 4])
+
+        with col_photo:
+            if squad_player_detail.get("player_photo"):
+                st.image(squad_player_detail["player_photo"], width=100)
+
+        with col_info:
+            st.markdown(f"### {squad_player_detail['player_name']}")
+            st.write(f"**ID API :** {squad_player_detail['player_id']}")
+            st.write(f"**Numéro :** {squad_player_detail['player_number'] or 'N/A'}")
+            st.write(f"**Âge :** {squad_player_detail['player_age'] or 'N/A'}")
+            st.write(f"**Poste :** {squad_player_detail['player_position'] or 'N/A'}")
+            st.write(f"**Dernière mise à jour locale :** {squad_player_detail['updated_at']}")
+
+        with st.expander("JSON brut du joueur dans l'effectif"):
+            st.code(
+                json.dumps(squad_player_detail["raw"], indent=2, ensure_ascii=False),
+                language="json",
+            )
+
+        if player_detail:
+            with st.expander("JSON brut du joueur global"):
+                st.code(
+                    json.dumps(player_detail["raw"], indent=2, ensure_ascii=False),
+                    language="json",
+                )
+
 def main() -> None:
     initialize_app()
     render_header()
     render_sidebar()
 
-    tab_dashboard, tab_leagues, tab_teams, tab_fixtures, tab_standings, tab_h2h, tab_admin = st.tabs(
+    tab_dashboard, tab_leagues, tab_teams, tab_players, tab_fixtures, tab_standings, tab_h2h, tab_admin = st.tabs(
         [
             "🏠 Dashboard",
             "🏆 Ligues",
             "👥 Équipes",
+            "🧍 Joueurs",
             "📅 Matchs",
             "📊 Classements",
             "⚔️ Head-to-Head",
@@ -1771,6 +1981,9 @@ def main() -> None:
 
     with tab_teams:
         render_team_explorer()
+    
+    with tab_players:
+        render_players_page()
 
     with tab_fixtures:
         render_fixture_explorer()

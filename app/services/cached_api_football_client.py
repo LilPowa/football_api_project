@@ -209,3 +209,19 @@ class CachedApiFootballClient:
             cache_ttl_seconds=24 * 60 * 60,
             force_refresh=force_refresh,
         )
+    
+    def get_player_squad(
+        self,
+        team_id: int,
+        force_refresh: bool = False,
+    ) -> dict[str, Any]:
+        params = {
+            "team": team_id,
+        }
+
+        return self.get(
+            endpoint="players/squads",
+            params=params,
+            cache_ttl_seconds=7 * 24 * 60 * 60,
+            force_refresh=force_refresh,
+        )
