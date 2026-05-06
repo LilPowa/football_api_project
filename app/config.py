@@ -15,6 +15,11 @@ class Settings:
         "https://v3.football.api-sports.io"
     )
 
+    DATABASE_PATH: str = os.getenv(
+        "DATABASE_PATH",
+        str(BASE_DIR / "data" / "football_data.db")
+    )
+
     @classmethod
     def validate(cls) -> None:
         if not cls.API_FOOTBALL_KEY:
