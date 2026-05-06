@@ -170,5 +170,48 @@ def init_db() -> None:
             )
             """
         )
+        
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS standings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                league_id INTEGER NOT NULL,
+                season_year INTEGER NOT NULL,
+                group_name TEXT,
+                position INTEGER,
+                team_id INTEGER,
+                team_name TEXT,
+                team_logo TEXT,
+                points INTEGER,
+                goals_diff INTEGER,
+                form TEXT,
+                status TEXT,
+                description TEXT,
+                all_played INTEGER,
+                all_win INTEGER,
+                all_draw INTEGER,
+                all_lose INTEGER,
+                all_goals_for INTEGER,
+                all_goals_against INTEGER,
+                home_played INTEGER,
+                home_win INTEGER,
+                home_draw INTEGER,
+                home_lose INTEGER,
+                home_goals_for INTEGER,
+                home_goals_against INTEGER,
+                away_played INTEGER,
+                away_win INTEGER,
+                away_draw INTEGER,
+                away_lose INTEGER,
+                away_goals_for INTEGER,
+                away_goals_against INTEGER,
+                raw_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(league_id, season_year, group_name, team_id),
+                FOREIGN KEY (league_id) REFERENCES leagues(league_id),
+                FOREIGN KEY (team_id) REFERENCES teams(team_id)
+            )
+            """
+        )
 
         connection.commit()

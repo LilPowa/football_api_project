@@ -9,14 +9,17 @@ from app.repositories.football_repository import (
     count_fixtures,
     count_league_seasons,
     count_leagues,
+    count_standings,
     count_teams,
     get_fixture_by_id,
     get_league_by_id,
+    get_standing_by_id,
     list_all_countries,
     list_fixture_teams_filter,
     list_fixtures_filtered,
     list_league_seasons_by_league_id,
     list_leagues_filtered,
+    list_standings_by_league_season,
     list_teams_by_league_season,
 )
 from app.services.sync_service import (
@@ -24,6 +27,7 @@ from app.services.sync_service import (
     sync_fixtures,
     sync_leagues,
     sync_teams,
+    sync_standings
 )
 
 APP_VERSION = "0.2.0"
@@ -99,14 +103,15 @@ def render_sync_buttons() -> None:
 def render_metrics() -> None:
     st.subheader("État de la base locale")
 
-    col1, col2, col3, col4, col5, col6 = st.columns(6)
+    col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
 
     col1.metric("Pays", count_countries())
     col2.metric("Ligues", count_leagues())
     col3.metric("Saisons", count_league_seasons())
     col4.metric("Équipes", count_teams())
     col5.metric("Matchs", count_fixtures())
-    col6.metric("Entrées cache API", count_cache_entries())
+    col6.metric("Classements", count_standings())
+    col7.metric("Cache API", count_cache_entries())
 
 def render_league_explorer() -> None:
     st.subheader("Exploration des ligues")
@@ -546,6 +551,209 @@ def render_fixture_explorer() -> None:
                 language="json",
             )
 
+def render_standings_explorer() -> None:
+    st.subheader("Classements par ligue et saison")
+
+    leagues = list_leagues_filtered(limit=500)
+
+    if not leagues:
+        st.info("Aucune ligue disponible. Synchronise d'abord les ligues.")
+        return
+
+    league_options = {
+        f"[{league['league_id']}] {league['name']} — {league['country_name']}": league["league_id"]
+        for league in leagues
+    }
+
+    selected_league_label = st.selectbox(
+        "Choisir une ligue pour le classement",
+        list(league_options.keys()),
+        key="standings_league_select",
+    )
+
+    selected_league_id = league_options[selected_league_label]
+    seasons = list_league_seasons_by_league_id(selected_league_id)
+
+    if not seasons:
+        st.info("Aucune saison disponible pour cette ligue.")
+        return
+
+    season_options = {
+        f"{season['season_year']} {'(courante)' if season['current'] else ''}": season["season_year"]
+        for season in seasons
+    }
+
+    selected_season_label = st.selectbox(
+        "Choisir une saison pour le classement",
+        list(season_options.keys()),
+        key="standings_season_select",
+    )
+
+    selected_season_year = season_options[selected_season_label]
+
+    st.info(
+        "Le classement dépend du coverage de la ligue et des limites de ton plan. "
+        "Si rien ne remonte, essaie une autre saison."
+    )
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("Synchroniser le classement", key="sync_standings_button"):
+            try:
+                with st.spinner("Synchronisation du classement..."):
+                    result = sync_standings(
+                        league_id=selected_league_id,
+                        season_year=selected_season_year,
+                        force_refresh=False,
+                    )
+
+                st.success(
+                    f"Classement synchronisé depuis : {result['source']} — "
+                    f"{result['saved_count']} ligne(s) récupérée(s)."
+                )
+            except RuntimeError as error:
+                st.error("La synchronisation du classement a échoué.")
+                st.code(str(error))
+                st.warning(
+                    "Ce n'est pas forcément un problème de code : ton plan Free "
+                    "ou le coverage de la ligue peuvent limiter cette donnée."
+                )
+
+    with col2:
+        if st.button("Forcer refresh classement", key="force_sync_standings_button"):
+            try:
+                with st.spinner("Refresh du classement depuis API-Football..."):
+                    result = sync_standings(
+                        league_id=selected_league_id,
+                        season_year=selected_season_year,
+                        force_refresh=True,
+                    )
+
+                st.warning(
+                    f"Classement rafraîchi depuis : {result['source']} — "
+                    f"{result['saved_count']} ligne(s) récupérée(s)."
+                )
+            except RuntimeError as error:
+                st.error("Le refresh du classement a échoué.")
+                st.code(str(error))
+                st.warning(
+                    "Essaie une autre saison ou vérifie le coverage standings."
+                )
+
+    standings = list_standings_by_league_season(
+        league_id=selected_league_id,
+        season_year=selected_season_year,
+    )
+
+    st.write(
+        f"{len(standings)} ligne(s) de classement affichée(s)."
+    )
+
+    if not standings:
+        st.info(
+            "Aucun classement en base pour cette sélection. Lance une "
+            "synchronisation ou choisis une autre saison."
+        )
+        return
+
+    groups = sorted(
+        {
+            standing["group_name"] or "Classement"
+            for standing in standings
+        }
+    )
+
+    selected_group = st.selectbox(
+        "Groupe / classement",
+        groups,
+        key="standings_group_filter",
+    )
+
+    filtered_standings = [
+        standing
+        for standing in standings
+        if (standing["group_name"] or "Classement") == selected_group
+    ]
+
+    table_rows = []
+
+    for standing in filtered_standings:
+        table_rows.append(
+            {
+                "Pos": standing["position"],
+                "Équipe": standing["team_name"],
+                "Pts": standing["points"],
+                "MJ": standing["all_played"],
+                "V": standing["all_win"],
+                "N": standing["all_draw"],
+                "D": standing["all_lose"],
+                "BP": standing["all_goals_for"],
+                "BC": standing["all_goals_against"],
+                "Diff": standing["goals_diff"],
+                "Forme": standing["form"],
+                "Statut": standing["status"],
+            }
+        )
+
+    st.dataframe(
+        table_rows,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    standing_options = {
+        f"{standing['position']}. {standing['team_name']}": standing["id"]
+        for standing in filtered_standings
+    }
+
+    selected_standing_label = st.selectbox(
+        "Sélectionner une équipe pour voir le détail",
+        list(standing_options.keys()),
+        key="standing_detail_select",
+    )
+
+    selected_standing_id = standing_options[selected_standing_label]
+    standing_detail = get_standing_by_id(selected_standing_id)
+
+    if standing_detail:
+        col_logo, col_info, col_stats = st.columns([1, 3, 3])
+
+        with col_logo:
+            if standing_detail.get("team_logo"):
+                st.image(standing_detail["team_logo"], width=90)
+
+        with col_info:
+            st.markdown(f"### {standing_detail['team_name']}")
+            st.write(f"**Position :** {standing_detail['position']}")
+            st.write(f"**Points :** {standing_detail['points']}")
+            st.write(f"**Forme :** {standing_detail['form'] or 'N/A'}")
+            st.write(f"**Statut :** {standing_detail['status'] or 'N/A'}")
+            st.write(
+                f"**Description :** "
+                f"{standing_detail['description'] or 'N/A'}"
+            )
+
+        with col_stats:
+            st.write("**Global**")
+            st.write(
+                f"{standing_detail['all_played']} match(s), "
+                f"{standing_detail['all_win']} victoire(s), "
+                f"{standing_detail['all_draw']} nul(s), "
+                f"{standing_detail['all_lose']} défaite(s)"
+            )
+            st.write(
+                f"Buts : {standing_detail['all_goals_for']} pour / "
+                f"{standing_detail['all_goals_against']} contre"
+            )
+            st.write(f"Différence : {standing_detail['goals_diff']}")
+
+        with st.expander("Voir le JSON brut de la ligne de classement"):
+            st.code(
+                json.dumps(standing_detail["raw"], indent=2, ensure_ascii=False),
+                language="json",
+            )
+
 def main() -> None:
     initialize_app()
     render_header()
@@ -558,6 +766,8 @@ def main() -> None:
     render_team_explorer()
     st.divider()
     render_fixture_explorer()
+    st.divider()
+    render_standings_explorer()
 
 if __name__ == "__main__":
     main()

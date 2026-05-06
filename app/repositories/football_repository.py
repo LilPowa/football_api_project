@@ -940,3 +940,280 @@ def get_fixture_by_id(fixture_id: int) -> dict[str, Any] | None:
     result["raw"] = json.loads(result.pop("raw_json"))
 
     return result
+
+# -------------------------------------------------------------------
+# Standings
+# -------------------------------------------------------------------
+
+def save_standings(
+    api_response: dict[str, Any],
+    league_id: int,
+    season_year: int,
+) -> int:
+    response_items = api_response.get("response", [])
+    updated_at = get_utc_now()
+    saved_count = 0
+
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            DELETE FROM standings
+            WHERE league_id = ?
+            AND season_year = ?
+            """,
+            (league_id, season_year),
+        )
+
+        for item in response_items:
+            league = item.get("league", {})
+            standings_groups = league.get("standings", [])
+
+            for group in standings_groups:
+                for standing in group:
+                    team = standing.get("team", {})
+                    all_stats = standing.get("all", {})
+                    home_stats = standing.get("home", {})
+                    away_stats = standing.get("away", {})
+
+                    all_goals = all_stats.get("goals", {})
+                    home_goals = home_stats.get("goals", {})
+                    away_goals = away_stats.get("goals", {})
+
+                    team_id = team.get("id")
+                    group_name = standing.get("group")
+
+                    if team_id is None:
+                        continue
+
+                    cursor.execute(
+                        """
+                        INSERT INTO standings (
+                            league_id,
+                            season_year,
+                            group_name,
+                            position,
+                            team_id,
+                            team_name,
+                            team_logo,
+                            points,
+                            goals_diff,
+                            form,
+                            status,
+                            description,
+                            all_played,
+                            all_win,
+                            all_draw,
+                            all_lose,
+                            all_goals_for,
+                            all_goals_against,
+                            home_played,
+                            home_win,
+                            home_draw,
+                            home_lose,
+                            home_goals_for,
+                            home_goals_against,
+                            away_played,
+                            away_win,
+                            away_draw,
+                            away_lose,
+                            away_goals_for,
+                            away_goals_against,
+                            raw_json,
+                            updated_at
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(league_id, season_year, group_name, team_id) DO UPDATE SET
+                            position = excluded.position,
+                            team_name = excluded.team_name,
+                            team_logo = excluded.team_logo,
+                            points = excluded.points,
+                            goals_diff = excluded.goals_diff,
+                            form = excluded.form,
+                            status = excluded.status,
+                            description = excluded.description,
+                            all_played = excluded.all_played,
+                            all_win = excluded.all_win,
+                            all_draw = excluded.all_draw,
+                            all_lose = excluded.all_lose,
+                            all_goals_for = excluded.all_goals_for,
+                            all_goals_against = excluded.all_goals_against,
+                            home_played = excluded.home_played,
+                            home_win = excluded.home_win,
+                            home_draw = excluded.home_draw,
+                            home_lose = excluded.home_lose,
+                            home_goals_for = excluded.home_goals_for,
+                            home_goals_against = excluded.home_goals_against,
+                            away_played = excluded.away_played,
+                            away_win = excluded.away_win,
+                            away_draw = excluded.away_draw,
+                            away_lose = excluded.away_lose,
+                            away_goals_for = excluded.away_goals_for,
+                            away_goals_against = excluded.away_goals_against,
+                            raw_json = excluded.raw_json,
+                            updated_at = excluded.updated_at
+                        """,
+                        (
+                            league.get("id") or league_id,
+                            league.get("season") or season_year,
+                            group_name,
+                            standing.get("rank"),
+                            team_id,
+                            team.get("name"),
+                            team.get("logo"),
+                            standing.get("points"),
+                            standing.get("goalsDiff"),
+                            standing.get("form"),
+                            standing.get("status"),
+                            standing.get("description"),
+                            all_stats.get("played"),
+                            all_stats.get("win"),
+                            all_stats.get("draw"),
+                            all_stats.get("lose"),
+                            all_goals.get("for"),
+                            all_goals.get("against"),
+                            home_stats.get("played"),
+                            home_stats.get("win"),
+                            home_stats.get("draw"),
+                            home_stats.get("lose"),
+                            home_goals.get("for"),
+                            home_goals.get("against"),
+                            away_stats.get("played"),
+                            away_stats.get("win"),
+                            away_stats.get("draw"),
+                            away_stats.get("lose"),
+                            away_goals.get("for"),
+                            away_goals.get("against"),
+                            json.dumps(standing, ensure_ascii=False),
+                            updated_at,
+                        ),
+                    )
+
+                    saved_count += 1
+
+        connection.commit()
+
+    return saved_count
+
+
+def count_standings() -> int:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute("SELECT COUNT(*) AS total FROM standings")
+        row = cursor.fetchone()
+
+        return int(row["total"])
+
+
+def list_standings_by_league_season(
+    league_id: int,
+    season_year: int,
+) -> list[dict[str, Any]]:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                id,
+                league_id,
+                season_year,
+                group_name,
+                position,
+                team_id,
+                team_name,
+                team_logo,
+                points,
+                goals_diff,
+                form,
+                status,
+                description,
+                all_played,
+                all_win,
+                all_draw,
+                all_lose,
+                all_goals_for,
+                all_goals_against,
+                home_played,
+                home_win,
+                home_draw,
+                home_lose,
+                home_goals_for,
+                home_goals_against,
+                away_played,
+                away_win,
+                away_draw,
+                away_lose,
+                away_goals_for,
+                away_goals_against,
+                updated_at
+            FROM standings
+            WHERE league_id = ?
+            AND season_year = ?
+            ORDER BY group_name ASC, position ASC
+            """,
+            (league_id, season_year),
+        )
+
+        rows = cursor.fetchall()
+
+    return [dict(row) for row in rows]
+
+
+def get_standing_by_id(standing_id: int) -> dict[str, Any] | None:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                id,
+                league_id,
+                season_year,
+                group_name,
+                position,
+                team_id,
+                team_name,
+                team_logo,
+                points,
+                goals_diff,
+                form,
+                status,
+                description,
+                all_played,
+                all_win,
+                all_draw,
+                all_lose,
+                all_goals_for,
+                all_goals_against,
+                home_played,
+                home_win,
+                home_draw,
+                home_lose,
+                home_goals_for,
+                home_goals_against,
+                away_played,
+                away_win,
+                away_draw,
+                away_lose,
+                away_goals_for,
+                away_goals_against,
+                raw_json,
+                updated_at
+            FROM standings
+            WHERE id = ?
+            """,
+            (standing_id,),
+        )
+
+        row = cursor.fetchone()
+
+    if row is None:
+        return None
+
+    result = dict(row)
+    result["raw"] = json.loads(result.pop("raw_json"))
+
+    return result

@@ -106,3 +106,21 @@ class CachedApiFootballClient:
             cache_ttl_seconds=6 * 60 * 60,
             force_refresh=force_refresh,
         )
+    
+    def get_standings(
+        self,
+        league_id: int,
+        season: int,
+        force_refresh: bool = False,
+    ) -> dict[str, Any]:
+        params = {
+            "league": league_id,
+            "season": season,
+        }
+
+        return self.get(
+            endpoint="standings",
+            params=params,
+            cache_ttl_seconds=60 * 60,
+            force_refresh=force_refresh,
+        )
