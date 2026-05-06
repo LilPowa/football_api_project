@@ -1860,3 +1860,413 @@ def get_fixture_lineup_by_id(lineup_id: int) -> dict[str, Any] | None:
     result["raw"] = json.loads(result.pop("raw_json"))
 
     return result
+
+# -------------------------------------------------------------------
+# Fixture player statistics
+# -------------------------------------------------------------------
+
+def save_fixture_player_statistics(
+    api_response: dict[str, Any],
+    fixture_id: int,
+) -> int:
+    response_items = api_response.get("response", [])
+    updated_at = get_utc_now()
+    saved_count = 0
+
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            DELETE FROM fixture_player_statistics
+            WHERE fixture_id = ?
+            """,
+            (fixture_id,),
+        )
+
+        for team_item in response_items:
+            team = team_item.get("team", {})
+            players = team_item.get("players", [])
+
+            team_id = team.get("id")
+
+            if team_id is None:
+                continue
+
+            for player_item in players:
+                player = player_item.get("player", {})
+                statistics = player_item.get("statistics", [])
+
+                player_id = player.get("id")
+
+                for stat_index, stat in enumerate(statistics):
+                    games = stat.get("games", {})
+                    offsides = stat.get("offsides")
+                    shots = stat.get("shots", {})
+                    goals = stat.get("goals", {})
+                    passes = stat.get("passes", {})
+                    tackles = stat.get("tackles", {})
+                    duels = stat.get("duels", {})
+                    dribbles = stat.get("dribbles", {})
+                    fouls = stat.get("fouls", {})
+                    cards = stat.get("cards", {})
+                    penalty = stat.get("penalty", {})
+
+                    cursor.execute(
+                        """
+                        INSERT INTO fixture_player_statistics (
+                            fixture_id,
+                            team_id,
+                            team_name,
+                            team_logo,
+                            player_id,
+                            player_name,
+                            player_photo,
+                            stat_index,
+
+                            games_minutes,
+                            games_number,
+                            games_position,
+                            games_rating,
+                            games_captain,
+                            games_substitute,
+
+                            offsides,
+
+                            shots_total,
+                            shots_on,
+
+                            goals_total,
+                            goals_conceded,
+                            goals_assists,
+                            goals_saves,
+
+                            passes_total,
+                            passes_key,
+                            passes_accuracy,
+
+                            tackles_total,
+                            tackles_blocks,
+                            tackles_interceptions,
+
+                            duels_total,
+                            duels_won,
+
+                            dribbles_attempts,
+                            dribbles_success,
+                            dribbles_past,
+
+                            fouls_drawn,
+                            fouls_committed,
+
+                            cards_yellow,
+                            cards_red,
+
+                            penalty_won,
+                            penalty_commited,
+                            penalty_scored,
+                            penalty_missed,
+                            penalty_saved,
+
+                            raw_json,
+                            updated_at
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(fixture_id, team_id, player_id, stat_index) DO UPDATE SET
+                            team_name = excluded.team_name,
+                            team_logo = excluded.team_logo,
+                            player_name = excluded.player_name,
+                            player_photo = excluded.player_photo,
+
+                            games_minutes = excluded.games_minutes,
+                            games_number = excluded.games_number,
+                            games_position = excluded.games_position,
+                            games_rating = excluded.games_rating,
+                            games_captain = excluded.games_captain,
+                            games_substitute = excluded.games_substitute,
+
+                            offsides = excluded.offsides,
+
+                            shots_total = excluded.shots_total,
+                            shots_on = excluded.shots_on,
+
+                            goals_total = excluded.goals_total,
+                            goals_conceded = excluded.goals_conceded,
+                            goals_assists = excluded.goals_assists,
+                            goals_saves = excluded.goals_saves,
+
+                            passes_total = excluded.passes_total,
+                            passes_key = excluded.passes_key,
+                            passes_accuracy = excluded.passes_accuracy,
+
+                            tackles_total = excluded.tackles_total,
+                            tackles_blocks = excluded.tackles_blocks,
+                            tackles_interceptions = excluded.tackles_interceptions,
+
+                            duels_total = excluded.duels_total,
+                            duels_won = excluded.duels_won,
+
+                            dribbles_attempts = excluded.dribbles_attempts,
+                            dribbles_success = excluded.dribbles_success,
+                            dribbles_past = excluded.dribbles_past,
+
+                            fouls_drawn = excluded.fouls_drawn,
+                            fouls_committed = excluded.fouls_committed,
+
+                            cards_yellow = excluded.cards_yellow,
+                            cards_red = excluded.cards_red,
+
+                            penalty_won = excluded.penalty_won,
+                            penalty_commited = excluded.penalty_commited,
+                            penalty_scored = excluded.penalty_scored,
+                            penalty_missed = excluded.penalty_missed,
+                            penalty_saved = excluded.penalty_saved,
+
+                            raw_json = excluded.raw_json,
+                            updated_at = excluded.updated_at
+                        """,
+                        (
+                            fixture_id,
+                            team_id,
+                            team.get("name"),
+                            team.get("logo"),
+                            player_id,
+                            player.get("name"),
+                            player.get("photo"),
+                            stat_index,
+
+                            games.get("minutes"),
+                            games.get("number"),
+                            games.get("position"),
+                            games.get("rating"),
+                            1 if games.get("captain") else 0 if games.get("captain") is False else None,
+                            1 if games.get("substitute") else 0 if games.get("substitute") is False else None,
+
+                            offsides,
+
+                            shots.get("total"),
+                            shots.get("on"),
+
+                            goals.get("total"),
+                            goals.get("conceded"),
+                            goals.get("assists"),
+                            goals.get("saves"),
+
+                            passes.get("total"),
+                            passes.get("key"),
+                            None if passes.get("accuracy") is None else str(passes.get("accuracy")),
+
+                            tackles.get("total"),
+                            tackles.get("blocks"),
+                            tackles.get("interceptions"),
+
+                            duels.get("total"),
+                            duels.get("won"),
+
+                            dribbles.get("attempts"),
+                            dribbles.get("success"),
+                            dribbles.get("past"),
+
+                            fouls.get("drawn"),
+                            fouls.get("committed"),
+
+                            cards.get("yellow"),
+                            cards.get("red"),
+
+                            penalty.get("won"),
+                            penalty.get("commited"),
+                            penalty.get("scored"),
+                            penalty.get("missed"),
+                            penalty.get("saved"),
+
+                            json.dumps(
+                                {
+                                    "player": player,
+                                    "statistics": stat,
+                                },
+                                ensure_ascii=False,
+                            ),
+                            updated_at,
+                        ),
+                    )
+
+                    saved_count += 1
+
+        connection.commit()
+
+    return saved_count
+
+
+def count_fixture_player_statistics() -> int:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute("SELECT COUNT(*) AS total FROM fixture_player_statistics")
+        row = cursor.fetchone()
+
+        return int(row["total"])
+
+
+def list_fixture_player_statistics_by_fixture_id(
+    fixture_id: int,
+    team_id: int | None = None,
+) -> list[dict[str, Any]]:
+    query = """
+        SELECT
+            id,
+            fixture_id,
+            team_id,
+            team_name,
+            team_logo,
+            player_id,
+            player_name,
+            player_photo,
+            stat_index,
+
+            games_minutes,
+            games_number,
+            games_position,
+            games_rating,
+            games_captain,
+            games_substitute,
+
+            offsides,
+
+            shots_total,
+            shots_on,
+
+            goals_total,
+            goals_conceded,
+            goals_assists,
+            goals_saves,
+
+            passes_total,
+            passes_key,
+            passes_accuracy,
+
+            tackles_total,
+            tackles_blocks,
+            tackles_interceptions,
+
+            duels_total,
+            duels_won,
+
+            dribbles_attempts,
+            dribbles_success,
+            dribbles_past,
+
+            fouls_drawn,
+            fouls_committed,
+
+            cards_yellow,
+            cards_red,
+
+            penalty_won,
+            penalty_commited,
+            penalty_scored,
+            penalty_missed,
+            penalty_saved,
+
+            updated_at
+        FROM fixture_player_statistics
+        WHERE fixture_id = ?
+    """
+
+    params: list[Any] = [fixture_id]
+
+    if team_id is not None:
+        query += " AND team_id = ?"
+        params.append(team_id)
+
+    query += """
+        ORDER BY team_name ASC, games_number ASC, player_name ASC
+    """
+
+    with get_connection() as connection:
+        cursor = connection.cursor()
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+
+    return [dict(row) for row in rows]
+
+
+def get_fixture_player_statistic_by_id(
+    fixture_player_statistic_id: int,
+) -> dict[str, Any] | None:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                id,
+                fixture_id,
+                team_id,
+                team_name,
+                team_logo,
+                player_id,
+                player_name,
+                player_photo,
+                stat_index,
+
+                games_minutes,
+                games_number,
+                games_position,
+                games_rating,
+                games_captain,
+                games_substitute,
+
+                offsides,
+
+                shots_total,
+                shots_on,
+
+                goals_total,
+                goals_conceded,
+                goals_assists,
+                goals_saves,
+
+                passes_total,
+                passes_key,
+                passes_accuracy,
+
+                tackles_total,
+                tackles_blocks,
+                tackles_interceptions,
+
+                duels_total,
+                duels_won,
+
+                dribbles_attempts,
+                dribbles_success,
+                dribbles_past,
+
+                fouls_drawn,
+                fouls_committed,
+
+                cards_yellow,
+                cards_red,
+
+                penalty_won,
+                penalty_commited,
+                penalty_scored,
+                penalty_missed,
+                penalty_saved,
+
+                raw_json,
+                updated_at
+            FROM fixture_player_statistics
+            WHERE id = ?
+            """,
+            (fixture_player_statistic_id,),
+        )
+
+        row = cursor.fetchone()
+
+    if row is None:
+        return None
+
+    result = dict(row)
+    result["raw"] = json.loads(result.pop("raw_json"))
+
+    return result

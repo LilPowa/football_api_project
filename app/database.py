@@ -305,4 +305,71 @@ def init_db() -> None:
             """
         )
 
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS fixture_player_statistics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                fixture_id INTEGER NOT NULL,
+                team_id INTEGER NOT NULL,
+                team_name TEXT,
+                team_logo TEXT,
+                player_id INTEGER,
+                player_name TEXT,
+                player_photo TEXT,
+                stat_index INTEGER NOT NULL,
+
+                games_minutes INTEGER,
+                games_number INTEGER,
+                games_position TEXT,
+                games_rating TEXT,
+                games_captain INTEGER,
+                games_substitute INTEGER,
+
+                offsides INTEGER,
+
+                shots_total INTEGER,
+                shots_on INTEGER,
+
+                goals_total INTEGER,
+                goals_conceded INTEGER,
+                goals_assists INTEGER,
+                goals_saves INTEGER,
+
+                passes_total INTEGER,
+                passes_key INTEGER,
+                passes_accuracy TEXT,
+
+                tackles_total INTEGER,
+                tackles_blocks INTEGER,
+                tackles_interceptions INTEGER,
+
+                duels_total INTEGER,
+                duels_won INTEGER,
+
+                dribbles_attempts INTEGER,
+                dribbles_success INTEGER,
+                dribbles_past INTEGER,
+
+                fouls_drawn INTEGER,
+                fouls_committed INTEGER,
+
+                cards_yellow INTEGER,
+                cards_red INTEGER,
+
+                penalty_won INTEGER,
+                penalty_commited INTEGER,
+                penalty_scored INTEGER,
+                penalty_missed INTEGER,
+                penalty_saved INTEGER,
+
+                raw_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+
+                UNIQUE(fixture_id, team_id, player_id, stat_index),
+                FOREIGN KEY (fixture_id) REFERENCES fixtures(fixture_id),
+                FOREIGN KEY (team_id) REFERENCES teams(team_id)
+            )
+            """
+        )
+                
         connection.commit()

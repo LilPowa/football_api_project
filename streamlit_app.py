@@ -9,6 +9,7 @@ from app.repositories.football_repository import (
     count_fixture_events,
     count_fixture_lineup_players,
     count_fixture_lineups,
+    count_fixture_player_statistics,
     count_fixture_statistics,
     count_fixtures,
     count_league_seasons,
@@ -18,6 +19,7 @@ from app.repositories.football_repository import (
     get_fixture_by_id,
     get_fixture_event_by_id,
     get_fixture_lineup_by_id,
+    get_fixture_player_statistic_by_id,
     get_fixture_statistics_as_comparison,
     get_league_by_id,
     get_standing_by_id,
@@ -25,6 +27,7 @@ from app.repositories.football_repository import (
     list_fixture_events_by_fixture_id,
     list_fixture_lineup_players,
     list_fixture_lineups_by_fixture_id,
+    list_fixture_player_statistics_by_fixture_id,
     list_fixture_teams_filter,
     list_fixtures_filtered,
     list_league_seasons_by_league_id,
@@ -36,6 +39,7 @@ from app.services.sync_service import (
     sync_countries,
     sync_fixture_events,
     sync_fixture_lineups,
+    sync_fixture_players,
     sync_fixture_statistics,
     sync_fixtures,
     sync_leagues,
@@ -80,6 +84,7 @@ def render_sidebar() -> None:
         st.metric("Stats matchs", count_fixture_statistics())
         st.metric("Événements", count_fixture_events())
         st.metric("Compositions", count_fixture_lineups())
+        st.metric("Stats joueurs", count_fixture_player_statistics())
         st.metric("Cache API", count_cache_entries())
 
         st.markdown("---")
@@ -177,8 +182,8 @@ def render_admin_page() -> None:
 
     col5.metric("Compositions stockées", count_fixture_lineups())
     col6.metric("Joueurs lineups", count_fixture_lineup_players())
-    col7.metric("Classements", count_standings())
-    col8.metric("Équipes", count_teams())
+    col7.metric("Stats joueurs", count_fixture_player_statistics())
+    col8.metric("Classements", count_standings())
 
     st.info(
         "Pour l'instant, le cache est fonctionnel mais pas encore administrable "
@@ -296,9 +301,9 @@ def render_metrics() -> None:
     row3_col1, row3_col2, row3_col3, row3_col4 = st.columns(4)
 
     row3_col1.metric("Joueurs lineups", count_fixture_lineup_players())
-    row3_col2.metric("Classements", count_standings())
-    row3_col3.metric("Cache API", count_cache_entries())
-    row3_col4.metric("À venir", "Joueurs")
+    row3_col2.metric("Stats joueurs", count_fixture_player_statistics())
+    row3_col3.metric("Classements", count_standings())
+    row3_col4.metric("Cache API", count_cache_entries())
 
 def render_league_explorer() -> None:
     st.subheader("Exploration des ligues")
@@ -896,6 +901,169 @@ def render_fixture_lineups_section(
                 language="json",
             )
 
+def render_fixture_players_section(
+    fixture_id: int,
+    status_short: str | None,
+) -> None:
+    st.markdown("### Statistiques joueurs du match")
+
+    if status_short == "NS":
+        st.info(
+            "Ce match n'a pas encore commencé. "
+            "Les statistiques joueurs risquent d'être vides."
+        )
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button(
+            "Synchroniser les statistiques joueurs",
+            key=f"sync_fixture_players_{fixture_id}",
+        ):
+            try:
+                with st.spinner("Synchronisation des statistiques joueurs..."):
+                    result = sync_fixture_players(
+                        fixture_id=fixture_id,
+                        force_refresh=False,
+                    )
+
+                st.success(
+                    f"Stats joueurs synchronisées depuis : {result['source']} — "
+                    f"{result['saved_count']} ligne(s) récupérée(s)."
+                )
+            except RuntimeError as error:
+                st.error("La synchronisation des statistiques joueurs a échoué.")
+                st.code(str(error))
+
+    with col2:
+        if st.button(
+            "Forcer refresh stats joueurs",
+            key=f"force_sync_fixture_players_{fixture_id}",
+        ):
+            try:
+                with st.spinner("Refresh des statistiques joueurs depuis API-Football..."):
+                    result = sync_fixture_players(
+                        fixture_id=fixture_id,
+                        force_refresh=True,
+                    )
+
+                st.warning(
+                    f"Stats joueurs rafraîchies depuis : {result['source']} — "
+                    f"{result['saved_count']} ligne(s) récupérée(s)."
+                )
+            except RuntimeError as error:
+                st.error("Le refresh des statistiques joueurs a échoué.")
+                st.code(str(error))
+
+    all_player_stats = list_fixture_player_statistics_by_fixture_id(fixture_id)
+
+    if not all_player_stats:
+        st.info(
+            "Aucune statistique joueur en base pour ce match. "
+            "Clique sur le bouton de synchronisation ou choisis un autre match."
+        )
+        return
+
+    team_options = {"Toutes les équipes": None}
+
+    for stat in all_player_stats:
+        team_options[stat["team_name"]] = stat["team_id"]
+
+    selected_team_name = st.selectbox(
+        "Filtrer par équipe",
+        list(team_options.keys()),
+        key=f"fixture_players_team_filter_{fixture_id}",
+    )
+
+    selected_team_id = team_options[selected_team_name]
+
+    player_stats = list_fixture_player_statistics_by_fixture_id(
+        fixture_id=fixture_id,
+        team_id=selected_team_id,
+    )
+
+    table_rows = []
+
+    for stat in player_stats:
+        table_rows.append(
+            {
+                "Équipe": stat["team_name"],
+                "N°": stat["games_number"],
+                "Joueur": stat["player_name"],
+                "Poste": stat["games_position"],
+                "Minutes": stat["games_minutes"],
+                "Note": stat["games_rating"],
+                "Buts": stat["goals_total"],
+                "Passes déc.": stat["goals_assists"],
+                "Tirs": stat["shots_total"],
+                "Tirs cadrés": stat["shots_on"],
+                "Passes": stat["passes_total"],
+                "Passes clés": stat["passes_key"],
+                "Précision passes": stat["passes_accuracy"],
+                "Duels": stat["duels_total"],
+                "Duels gagnés": stat["duels_won"],
+                "Dribbles tentés": stat["dribbles_attempts"],
+                "Dribbles réussis": stat["dribbles_success"],
+                "Fautes subies": stat["fouls_drawn"],
+                "Fautes commises": stat["fouls_committed"],
+                "Jaunes": stat["cards_yellow"],
+                "Rouges": stat["cards_red"],
+            }
+        )
+
+    st.dataframe(
+        table_rows,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    player_options = {
+        (
+            f"{stat['team_name']} | "
+            f"#{stat['games_number'] or 'N/A'} "
+            f"{stat['player_name']}"
+        ): stat["id"]
+        for stat in player_stats
+    }
+
+    selected_player_label = st.selectbox(
+        "Voir le détail JSON d'un joueur",
+        list(player_options.keys()),
+        key=f"fixture_player_stat_detail_{fixture_id}",
+    )
+
+    selected_player_stat_id = player_options[selected_player_label]
+    player_stat_detail = get_fixture_player_statistic_by_id(selected_player_stat_id)
+
+    if player_stat_detail:
+        col_photo, col_info, col_stats = st.columns([1, 3, 3])
+
+        with col_photo:
+            if player_stat_detail.get("player_photo"):
+                st.image(player_stat_detail["player_photo"], width=90)
+
+        with col_info:
+            st.markdown(f"### {player_stat_detail['player_name']}")
+            st.write(f"**Équipe :** {player_stat_detail['team_name']}")
+            st.write(f"**Poste :** {player_stat_detail['games_position'] or 'N/A'}")
+            st.write(f"**Numéro :** {player_stat_detail['games_number'] or 'N/A'}")
+            st.write(f"**Minutes :** {player_stat_detail['games_minutes'] or 'N/A'}")
+            st.write(f"**Note :** {player_stat_detail['games_rating'] or 'N/A'}")
+
+        with col_stats:
+            st.write("**Résumé performance**")
+            st.write(f"Buts : {player_stat_detail['goals_total'] or 0}")
+            st.write(f"Passes décisives : {player_stat_detail['goals_assists'] or 0}")
+            st.write(f"Tirs cadrés : {player_stat_detail['shots_on'] or 0}")
+            st.write(f"Passes clés : {player_stat_detail['passes_key'] or 0}")
+            st.write(f"Duels gagnés : {player_stat_detail['duels_won'] or 0}")
+
+        with st.expander("JSON brut des statistiques joueur"):
+            st.code(
+                json.dumps(player_stat_detail["raw"], indent=2, ensure_ascii=False),
+                language="json",
+            )
+
 def render_fixture_explorer() -> None:
     st.subheader("Matchs par ligue et saison")
 
@@ -1097,11 +1265,12 @@ def render_fixture_explorer() -> None:
     if fixture_detail:
         st.divider()
 
-        detail_tab_stats, detail_tab_events, detail_tab_lineups, detail_tab_raw = st.tabs(
+        detail_tab_stats, detail_tab_events, detail_tab_lineups, detail_tab_players, detail_tab_raw = st.tabs(
             [
                 "📊 Statistiques",
                 "⏱️ Événements",
                 "🧩 Compositions",
+                "👤 Joueurs",
                 "🧾 JSON brut",
             ]
         )
@@ -1120,6 +1289,12 @@ def render_fixture_explorer() -> None:
         
         with detail_tab_lineups:
             render_fixture_lineups_section(
+                fixture_id=selected_fixture_id,
+                status_short=fixture_detail.get("status_short"),
+            )
+        
+        with detail_tab_players:
+            render_fixture_players_section(
                 fixture_id=selected_fixture_id,
                 status_short=fixture_detail.get("status_short"),
             )

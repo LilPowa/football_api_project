@@ -6,6 +6,7 @@ from app.repositories.football_repository import (
     count_fixture_events,
     count_fixture_lineup_players,
     count_fixture_lineups,
+    count_fixture_player_statistics,
     count_fixture_statistics,
     count_fixtures,
     count_league_seasons,
@@ -16,6 +17,7 @@ from app.repositories.football_repository import (
     save_countries,
     save_fixture_events,
     save_fixture_lineups,
+    save_fixture_player_statistics,
     save_fixture_statistics,
     save_fixtures,
     save_leagues,
@@ -219,4 +221,29 @@ def sync_fixture_lineups(
         "saved_count": saved_count,
         "total_lineups": total_lineups,
         "total_lineup_players": total_lineup_players,
+    }
+
+def sync_fixture_players(
+    fixture_id: int,
+    force_refresh: bool = False,
+) -> dict[str, Any]:
+    init_db()
+
+    client = CachedApiFootballClient()
+    api_response = client.get_fixture_players(
+        fixture_id=fixture_id,
+        force_refresh=force_refresh,
+    )
+
+    saved_count = save_fixture_player_statistics(
+        api_response=api_response,
+        fixture_id=fixture_id,
+    )
+
+    total_fixture_player_statistics = count_fixture_player_statistics()
+
+    return {
+        "source": "cache local" if client.last_cache_hit else "API-Football",
+        "saved_count": saved_count,
+        "total_fixture_player_statistics": total_fixture_player_statistics,
     }
