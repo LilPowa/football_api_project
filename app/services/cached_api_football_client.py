@@ -315,3 +315,52 @@ class CachedApiFootballClient:
             cache_ttl_seconds=24 * 60 * 60,
             force_refresh=force_refresh,
         )
+    
+    def get_injuries(
+        self,
+        league_id: int | None = None,
+        season: int | None = None,
+        team_id: int | None = None,
+        player_id: int | None = None,
+        fixture_id: int | None = None,
+        force_refresh: bool = False,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {}
+
+        if league_id is not None:
+            params["league"] = league_id
+
+        if season is not None:
+            params["season"] = season
+
+        if team_id is not None:
+            params["team"] = team_id
+
+        if player_id is not None:
+            params["player"] = player_id
+
+        if fixture_id is not None:
+            params["fixture"] = fixture_id
+
+        return self.get(
+            endpoint="injuries",
+            params=params,
+            cache_ttl_seconds=6 * 60 * 60,
+            force_refresh=force_refresh,
+        )
+
+    def get_player_sidelined(
+        self,
+        player_id: int,
+        force_refresh: bool = False,
+    ) -> dict[str, Any]:
+        params = {
+            "player": player_id,
+        }
+
+        return self.get(
+            endpoint="sidelined",
+            params=params,
+            cache_ttl_seconds=7 * 24 * 60 * 60,
+            force_refresh=force_refresh,
+        )

@@ -3618,3 +3618,333 @@ def get_top_player_statistic_by_id(
     result["raw"] = json.loads(result.pop("raw_json"))
 
     return result
+
+# -------------------------------------------------------------------
+# Injuries and sidelined
+# -------------------------------------------------------------------
+
+def save_injuries(
+    api_response: dict[str, Any],
+) -> int:
+    response_items = api_response.get("response", [])
+    updated_at = get_utc_now()
+    saved_count = 0
+
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        for item in response_items:
+            player = item.get("player", {})
+            team = item.get("team", {})
+            fixture = item.get("fixture", {})
+            league = item.get("league", {})
+
+            player_id = player.get("id")
+            team_id = team.get("id")
+            fixture_id = fixture.get("id")
+            league_id = league.get("id")
+            season_year = league.get("season")
+
+            cursor.execute(
+                """
+                INSERT INTO injuries (
+                    player_id,
+                    player_name,
+                    player_photo,
+                    injury_type,
+                    reason,
+
+                    team_id,
+                    team_name,
+                    team_logo,
+
+                    fixture_id,
+                    fixture_timezone,
+                    fixture_date,
+                    fixture_timestamp,
+
+                    league_id,
+                    league_name,
+                    league_country,
+                    league_logo,
+                    league_flag,
+                    season_year,
+
+                    raw_json,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(
+                    player_id,
+                    team_id,
+                    fixture_id,
+                    league_id,
+                    season_year,
+                    injury_type,
+                    reason
+                ) DO UPDATE SET
+                    player_name = excluded.player_name,
+                    player_photo = excluded.player_photo,
+                    team_name = excluded.team_name,
+                    team_logo = excluded.team_logo,
+                    fixture_timezone = excluded.fixture_timezone,
+                    fixture_date = excluded.fixture_date,
+                    fixture_timestamp = excluded.fixture_timestamp,
+                    league_name = excluded.league_name,
+                    league_country = excluded.league_country,
+                    league_logo = excluded.league_logo,
+                    league_flag = excluded.league_flag,
+                    raw_json = excluded.raw_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    player_id,
+                    player.get("name"),
+                    player.get("photo"),
+                    player.get("type"),
+                    player.get("reason"),
+
+                    team_id,
+                    team.get("name"),
+                    team.get("logo"),
+
+                    fixture_id,
+                    fixture.get("timezone"),
+                    fixture.get("date"),
+                    fixture.get("timestamp"),
+
+                    league_id,
+                    league.get("name"),
+                    league.get("country"),
+                    league.get("logo"),
+                    league.get("flag"),
+                    season_year,
+
+                    json.dumps(item, ensure_ascii=False),
+                    updated_at,
+                ),
+            )
+
+            saved_count += 1
+
+        connection.commit()
+
+    return saved_count
+
+
+def count_injuries() -> int:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute("SELECT COUNT(*) AS total FROM injuries")
+        row = cursor.fetchone()
+
+        return int(row["total"])
+
+
+def list_injuries(
+    league_id: int | None = None,
+    season_year: int | None = None,
+    team_id: int | None = None,
+    limit: int = 200,
+) -> list[dict[str, Any]]:
+    query = """
+        SELECT
+            id,
+            player_id,
+            player_name,
+            player_photo,
+            injury_type,
+            reason,
+
+            team_id,
+            team_name,
+            team_logo,
+
+            fixture_id,
+            fixture_date,
+
+            league_id,
+            league_name,
+            league_country,
+            season_year,
+
+            updated_at
+        FROM injuries
+        WHERE 1 = 1
+    """
+
+    params: list[Any] = []
+
+    if league_id is not None:
+        query += " AND league_id = ?"
+        params.append(league_id)
+
+    if season_year is not None:
+        query += " AND season_year = ?"
+        params.append(season_year)
+
+    if team_id is not None:
+        query += " AND team_id = ?"
+        params.append(team_id)
+
+    query += """
+        ORDER BY fixture_date DESC, team_name ASC, player_name ASC
+        LIMIT ?
+    """
+    params.append(limit)
+
+    with get_connection() as connection:
+        cursor = connection.cursor()
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+
+    return [dict(row) for row in rows]
+
+
+def get_injury_by_id(injury_id: int) -> dict[str, Any] | None:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT *
+            FROM injuries
+            WHERE id = ?
+            """,
+            (injury_id,),
+        )
+
+        row = cursor.fetchone()
+
+    if row is None:
+        return None
+
+    result = dict(row)
+    result["raw"] = json.loads(result.pop("raw_json"))
+
+    return result
+
+
+def save_player_sidelined(
+    api_response: dict[str, Any],
+    player_id: int,
+) -> int:
+    response_items = api_response.get("response", [])
+    updated_at = get_utc_now()
+    saved_count = 0
+
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            DELETE FROM sidelined_records
+            WHERE entity_type = ?
+            AND entity_id = ?
+            """,
+            ("player", player_id),
+        )
+
+        for item in response_items:
+            cursor.execute(
+                """
+                INSERT INTO sidelined_records (
+                    entity_type,
+                    entity_id,
+                    sidelined_type,
+                    start_date,
+                    end_date,
+                    raw_json,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(
+                    entity_type,
+                    entity_id,
+                    sidelined_type,
+                    start_date,
+                    end_date
+                ) DO UPDATE SET
+                    raw_json = excluded.raw_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    "player",
+                    player_id,
+                    item.get("type"),
+                    item.get("start"),
+                    item.get("end"),
+                    json.dumps(item, ensure_ascii=False),
+                    updated_at,
+                ),
+            )
+
+            saved_count += 1
+
+        connection.commit()
+
+    return saved_count
+
+
+def count_sidelined_records() -> int:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute("SELECT COUNT(*) AS total FROM sidelined_records")
+        row = cursor.fetchone()
+
+        return int(row["total"])
+
+
+def list_player_sidelined_records(
+    player_id: int,
+) -> list[dict[str, Any]]:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                id,
+                entity_type,
+                entity_id,
+                sidelined_type,
+                start_date,
+                end_date,
+                updated_at
+            FROM sidelined_records
+            WHERE entity_type = ?
+            AND entity_id = ?
+            ORDER BY start_date DESC
+            """,
+            ("player", player_id),
+        )
+
+        rows = cursor.fetchall()
+
+    return [dict(row) for row in rows]
+
+
+def get_sidelined_record_by_id(record_id: int) -> dict[str, Any] | None:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT *
+            FROM sidelined_records
+            WHERE id = ?
+            """,
+            (record_id,),
+        )
+
+        row = cursor.fetchone()
+
+    if row is None:
+        return None
+
+    result = dict(row)
+    result["raw"] = json.loads(result.pop("raw_json"))
+
+    return result

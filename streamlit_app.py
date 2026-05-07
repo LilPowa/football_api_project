@@ -51,6 +51,12 @@ from app.repositories.football_repository import (
     count_top_player_statistics,
     get_top_player_statistic_by_id,
     list_top_player_statistics,
+    count_injuries,
+    count_sidelined_records,
+    get_injury_by_id,
+    get_sidelined_record_by_id,
+    list_injuries,
+    list_player_sidelined_records,
 )
 from app.services.sync_service import (
     sync_countries,
@@ -66,6 +72,8 @@ from app.services.sync_service import (
     sync_player_squad,
     sync_players_statistics,
     sync_top_player_statistics,
+    sync_injuries,
+    sync_player_sidelined,
 )
 
 APP_VERSION = "0.2.1"
@@ -111,6 +119,8 @@ def render_sidebar() -> None:
         st.metric("Head-to-head", count_head_to_head_matches())
         st.metric("Stats saison joueurs", count_player_season_statistics())
         st.metric("Tops joueurs", count_top_player_statistics())
+        st.metric("Blessures", count_injuries())
+        st.metric("Indisponibilités", count_sidelined_records())
         st.metric("Cache API", count_cache_entries())
 
         st.markdown("---")
@@ -348,7 +358,7 @@ def render_metrics() -> None:
     row5_col1, row5_col2, row5_col3, row5_col4 = st.columns(4)
     
     row5_col1.metric("Tops joueurs", count_top_player_statistics())
-    row5_col2.metric("A venir", "A venir")
+    row5_col2.metric("Blessures", count_injuries())
     row5_col3.metric("A venir", "A venir")
     row5_col4.metric("A venir", "A venir")
 
@@ -2357,17 +2367,272 @@ def render_top_players_page() -> None:
                 language="json",
             )
 
+def render_injuries_page() -> None:
+    st.subheader("Blessures et indisponibilités")
+
+    st.write(
+        "Cette page permet de synchroniser les blessures d'une ligue/saison "
+        "et de consulter l'historique d'indisponibilité d'un joueur."
+    )
+
+    leagues = list_leagues_filtered(limit=500)
+
+    if not leagues:
+        st.info("Aucune ligue disponible. Synchronise d'abord les ligues.")
+        return
+
+    league_options = {
+        f"[{league['league_id']}] {league['name']} — {league['country_name']}": league["league_id"]
+        for league in leagues
+    }
+
+    selected_league_label = st.selectbox(
+        "Choisir une ligue",
+        list(league_options.keys()),
+        key="injuries_league_select",
+    )
+
+    selected_league_id = league_options[selected_league_label]
+    seasons = list_league_seasons_by_league_id(selected_league_id)
+
+    if not seasons:
+        st.info("Aucune saison disponible pour cette ligue.")
+        return
+
+    season_options = {
+        f"{season['season_year']} {'(courante)' if season['current'] else ''}": season["season_year"]
+        for season in seasons
+    }
+
+    selected_season_label = st.selectbox(
+        "Choisir une saison",
+        list(season_options.keys()),
+        key="injuries_season_select",
+    )
+
+    selected_season_year = season_options[selected_season_label]
+
+    teams = list_teams_by_league_season(
+        league_id=selected_league_id,
+        season_year=selected_season_year,
+    )
+
+    team_options = {"Toutes les équipes": None}
+
+    for team in teams:
+        team_options[f"[{team['team_id']}] {team['name']}"] = team["team_id"]
+
+    selected_team_label = st.selectbox(
+        "Filtrer par équipe",
+        list(team_options.keys()),
+        key="injuries_team_select",
+    )
+
+    selected_team_id = team_options[selected_team_label]
+
+    col_sync, col_force = st.columns(2)
+
+    with col_sync:
+        if st.button("Synchroniser blessures", key="sync_injuries_button"):
+            try:
+                with st.spinner("Synchronisation des blessures..."):
+                    result = sync_injuries(
+                        league_id=selected_league_id,
+                        season_year=selected_season_year,
+                        team_id=selected_team_id,
+                        force_refresh=False,
+                    )
+
+                st.success(
+                    f"Blessures synchronisées depuis : {result['source']} — "
+                    f"{result['saved_count']} blessure(s) récupérée(s)."
+                )
+            except RuntimeError as error:
+                st.error("La synchronisation des blessures a échoué.")
+                st.code(str(error))
+
+    with col_force:
+        if st.button("Forcer refresh blessures", key="force_injuries_button"):
+            try:
+                with st.spinner("Refresh blessures depuis API-Football..."):
+                    result = sync_injuries(
+                        league_id=selected_league_id,
+                        season_year=selected_season_year,
+                        team_id=selected_team_id,
+                        force_refresh=True,
+                    )
+
+                st.warning(
+                    f"Blessures rafraîchies depuis : {result['source']} — "
+                    f"{result['saved_count']} blessure(s) récupérée(s)."
+                )
+            except RuntimeError as error:
+                st.error("Le refresh des blessures a échoué.")
+                st.code(str(error))
+
+    injuries = list_injuries(
+        league_id=selected_league_id,
+        season_year=selected_season_year,
+        team_id=selected_team_id,
+        limit=200,
+    )
+
+    st.markdown("### Blessures")
+
+    if not injuries:
+        st.info(
+            "Aucune blessure en base pour cette sélection. "
+            "Clique sur Synchroniser blessures."
+        )
+    else:
+        rows = []
+
+        for injury in injuries:
+            rows.append(
+                {
+                    "Joueur": injury["player_name"],
+                    "Équipe": injury["team_name"],
+                    "Type": injury["injury_type"],
+                    "Raison": injury["reason"],
+                    "Match": injury["fixture_date"],
+                    "Ligue": injury["league_name"],
+                    "Saison": injury["season_year"],
+                }
+            )
+
+        st.dataframe(
+            rows,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        injury_options = {
+            f"{injury['player_name']} — {injury['team_name']} — {injury['reason'] or 'N/A'}": injury["id"]
+            for injury in injuries
+        }
+
+        selected_injury_label = st.selectbox(
+            "Voir le détail d'une blessure",
+            list(injury_options.keys()),
+            key="injury_detail_select",
+        )
+
+        selected_injury_id = injury_options[selected_injury_label]
+        injury_detail = get_injury_by_id(selected_injury_id)
+
+        if injury_detail:
+            with st.expander("JSON brut de la blessure"):
+                st.code(
+                    json.dumps(injury_detail["raw"], indent=2, ensure_ascii=False),
+                    language="json",
+                )
+
+    st.divider()
+    st.markdown("### Historique indisponibilités joueur")
+
+    player_id_input = st.text_input(
+        "ID joueur pour consulter / synchroniser ses indisponibilités",
+        key="sidelined_player_id_input",
+    )
+
+    if not player_id_input.strip().isdigit():
+        st.info("Renseigne un ID joueur numérique pour utiliser cette section.")
+        return
+
+    player_id = int(player_id_input.strip())
+
+    col_sid_sync, col_sid_force = st.columns(2)
+
+    with col_sid_sync:
+        if st.button("Synchroniser indisponibilités", key="sync_sidelined_button"):
+            try:
+                with st.spinner("Synchronisation des indisponibilités..."):
+                    result = sync_player_sidelined(
+                        player_id=player_id,
+                        force_refresh=False,
+                    )
+
+                st.success(
+                    f"Indisponibilités synchronisées depuis : {result['source']} — "
+                    f"{result['saved_count']} élément(s) récupéré(s)."
+                )
+            except RuntimeError as error:
+                st.error("La synchronisation des indisponibilités a échoué.")
+                st.code(str(error))
+
+    with col_sid_force:
+        if st.button("Forcer refresh indisponibilités", key="force_sidelined_button"):
+            try:
+                with st.spinner("Refresh des indisponibilités..."):
+                    result = sync_player_sidelined(
+                        player_id=player_id,
+                        force_refresh=True,
+                    )
+
+                st.warning(
+                    f"Indisponibilités rafraîchies depuis : {result['source']} — "
+                    f"{result['saved_count']} élément(s) récupéré(s)."
+                )
+            except RuntimeError as error:
+                st.error("Le refresh des indisponibilités a échoué.")
+                st.code(str(error))
+
+    records = list_player_sidelined_records(player_id)
+
+    if not records:
+        st.info("Aucune indisponibilité en base pour ce joueur.")
+        return
+
+    rows = []
+
+    for record in records:
+        rows.append(
+            {
+                "Type": record["sidelined_type"],
+                "Début": record["start_date"],
+                "Fin": record["end_date"],
+            }
+        )
+
+    st.dataframe(
+        rows,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    record_options = {
+        f"{record['sidelined_type'] or 'N/A'} — {record['start_date'] or 'N/A'}": record["id"]
+        for record in records
+    }
+
+    selected_record_label = st.selectbox(
+        "Voir le JSON brut d'une indisponibilité",
+        list(record_options.keys()),
+        key="sidelined_detail_select",
+    )
+
+    selected_record_id = record_options[selected_record_label]
+    record_detail = get_sidelined_record_by_id(selected_record_id)
+
+    if record_detail:
+        with st.expander("JSON brut de l'indisponibilité"):
+            st.code(
+                json.dumps(record_detail["raw"], indent=2, ensure_ascii=False),
+                language="json",
+            )
+
 def main() -> None:
     initialize_app()
     render_header()
     render_sidebar()
 
-    tab_dashboard, tab_leagues, tab_teams, tab_players, tab_fixtures, tab_standings, tab_h2h, tab_admin = st.tabs(
+    tab_dashboard, tab_leagues, tab_teams, tab_players, tab_injuries, tab_fixtures, tab_standings, tab_h2h, tab_admin = st.tabs(
         [
             "🏠 Dashboard",
             "🏆 Ligues",
             "👥 Équipes",
             "🧍 Joueurs",
+            "🏥 Blessures",
             "📅 Matchs",
             "📊 Classements",
             "⚔️ Head-to-Head",
@@ -2392,6 +2657,9 @@ def main() -> None:
 
         st.divider()
         render_top_players_page()
+    
+    with tab_injuries:
+        render_injuries_page()
 
     with tab_fixtures:
         render_fixture_explorer()

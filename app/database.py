@@ -598,5 +598,74 @@ def init_db() -> None:
             )
             """
         )
+        
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS injuries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+                player_id INTEGER,
+                player_name TEXT,
+                player_photo TEXT,
+                injury_type TEXT,
+                reason TEXT,
+
+                team_id INTEGER,
+                team_name TEXT,
+                team_logo TEXT,
+
+                fixture_id INTEGER,
+                fixture_timezone TEXT,
+                fixture_date TEXT,
+                fixture_timestamp INTEGER,
+
+                league_id INTEGER,
+                league_name TEXT,
+                league_country TEXT,
+                league_logo TEXT,
+                league_flag TEXT,
+                season_year INTEGER,
+
+                raw_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+
+                UNIQUE(
+                    player_id,
+                    team_id,
+                    fixture_id,
+                    league_id,
+                    season_year,
+                    injury_type,
+                    reason
+                )
+            )
+            """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS sidelined_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+                entity_type TEXT NOT NULL,
+                entity_id INTEGER NOT NULL,
+
+                sidelined_type TEXT,
+                start_date TEXT,
+                end_date TEXT,
+
+                raw_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+
+                UNIQUE(
+                    entity_type,
+                    entity_id,
+                    sidelined_type,
+                    start_date,
+                    end_date
+                )
+            )
+            """
+        )
                 
         connection.commit()

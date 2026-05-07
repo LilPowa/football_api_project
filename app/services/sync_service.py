@@ -32,6 +32,10 @@ from app.repositories.football_repository import (
     save_player_season_statistics,
     count_top_player_statistics,
     save_top_player_statistics,
+    count_injuries,
+    count_sidelined_records,
+    save_injuries,
+    save_player_sidelined,
 )
 from app.services.cached_api_football_client import CachedApiFootballClient
 
@@ -395,4 +399,59 @@ def sync_top_player_statistics(
         "source": "cache local" if client.last_cache_hit else "API-Football",
         "saved_count": saved_count,
         "total_top_player_statistics": total_top_player_statistics,
+    }
+
+def sync_injuries(
+    league_id: int | None = None,
+    season_year: int | None = None,
+    team_id: int | None = None,
+    player_id: int | None = None,
+    fixture_id: int | None = None,
+    force_refresh: bool = False,
+) -> dict[str, Any]:
+    init_db()
+
+    client = CachedApiFootballClient()
+    api_response = client.get_injuries(
+        league_id=league_id,
+        season=season_year,
+        team_id=team_id,
+        player_id=player_id,
+        fixture_id=fixture_id,
+        force_refresh=force_refresh,
+    )
+
+    saved_count = save_injuries(api_response)
+    total_injuries = count_injuries()
+
+    return {
+        "source": "cache local" if client.last_cache_hit else "API-Football",
+        "saved_count": saved_count,
+        "total_injuries": total_injuries,
+    }
+
+
+def sync_player_sidelined(
+    player_id: int,
+    force_refresh: bool = False,
+) -> dict[str, Any]:
+    init_db()
+
+    client = CachedApiFootballClient()
+    api_response = client.get_player_sidelined(
+        player_id=player_id,
+        force_refresh=force_refresh,
+    )
+
+    saved_count = save_player_sidelined(
+        api_response=api_response,
+        player_id=player_id,
+    )
+
+    total_sidelined_records = count_sidelined_records()
+
+    return {
+        "source": "cache local" if client.last_cache_hit else "API-Football",
+        "saved_count": saved_count,
+        "total_sidelined_records": total_sidelined_records,
     }
