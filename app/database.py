@@ -667,5 +667,45 @@ def init_db() -> None:
             )
             """
         )
+        
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS coaches (
+                coach_id INTEGER PRIMARY KEY,
+                name TEXT,
+                firstname TEXT,
+                lastname TEXT,
+                age INTEGER,
+                birth_date TEXT,
+                birth_place TEXT,
+                birth_country TEXT,
+                nationality TEXT,
+                height TEXT,
+                weight TEXT,
+                photo TEXT,
+                raw_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS coach_careers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                coach_id INTEGER NOT NULL,
+                team_id INTEGER,
+                team_name TEXT,
+                team_logo TEXT,
+                start_date TEXT,
+                end_date TEXT,
+                raw_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(coach_id, team_id, start_date, end_date),
+                FOREIGN KEY (coach_id) REFERENCES coaches(coach_id),
+                FOREIGN KEY (team_id) REFERENCES teams(team_id)
+            )
+            """
+        )
                 
         connection.commit()

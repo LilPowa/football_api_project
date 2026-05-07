@@ -364,3 +364,28 @@ class CachedApiFootballClient:
             cache_ttl_seconds=7 * 24 * 60 * 60,
             force_refresh=force_refresh,
         )
+    
+    def get_coaches(
+        self,
+        team_id: int | None = None,
+        coach_id: int | None = None,
+        search: str | None = None,
+        force_refresh: bool = False,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {}
+
+        if team_id is not None:
+            params["team"] = team_id
+
+        if coach_id is not None:
+            params["id"] = coach_id
+
+        if search:
+            params["search"] = search
+
+        return self.get(
+            endpoint="coachs",
+            params=params,
+            cache_ttl_seconds=7 * 24 * 60 * 60,
+            force_refresh=force_refresh,
+        )

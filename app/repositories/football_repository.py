@@ -3948,3 +3948,247 @@ def get_sidelined_record_by_id(record_id: int) -> dict[str, Any] | None:
     result["raw"] = json.loads(result.pop("raw_json"))
 
     return result
+
+# -------------------------------------------------------------------
+# Coaches
+# -------------------------------------------------------------------
+
+def save_coaches(
+    api_response: dict[str, Any],
+) -> int:
+    response_items = api_response.get("response", [])
+    updated_at = get_utc_now()
+    saved_count = 0
+
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        for coach in response_items:
+            coach_id = coach.get("id")
+
+            if coach_id is None:
+                continue
+
+            birth = coach.get("birth", {})
+            career = coach.get("career", [])
+
+            cursor.execute(
+                """
+                INSERT INTO coaches (
+                    coach_id,
+                    name,
+                    firstname,
+                    lastname,
+                    age,
+                    birth_date,
+                    birth_place,
+                    birth_country,
+                    nationality,
+                    height,
+                    weight,
+                    photo,
+                    raw_json,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(coach_id) DO UPDATE SET
+                    name = excluded.name,
+                    firstname = excluded.firstname,
+                    lastname = excluded.lastname,
+                    age = excluded.age,
+                    birth_date = excluded.birth_date,
+                    birth_place = excluded.birth_place,
+                    birth_country = excluded.birth_country,
+                    nationality = excluded.nationality,
+                    height = excluded.height,
+                    weight = excluded.weight,
+                    photo = excluded.photo,
+                    raw_json = excluded.raw_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    coach_id,
+                    coach.get("name"),
+                    coach.get("firstname"),
+                    coach.get("lastname"),
+                    coach.get("age"),
+                    birth.get("date"),
+                    birth.get("place"),
+                    birth.get("country"),
+                    coach.get("nationality"),
+                    coach.get("height"),
+                    coach.get("weight"),
+                    coach.get("photo"),
+                    json.dumps(coach, ensure_ascii=False),
+                    updated_at,
+                ),
+            )
+
+            for career_item in career:
+                team = career_item.get("team", {})
+                team_id = team.get("id")
+                start_date = career_item.get("start") or ""
+                end_date = career_item.get("end") or ""
+
+                cursor.execute(
+                    """
+                    INSERT INTO coach_careers (
+                        coach_id,
+                        team_id,
+                        team_name,
+                        team_logo,
+                        start_date,
+                        end_date,
+                        raw_json,
+                        updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(coach_id, team_id, start_date, end_date) DO UPDATE SET
+                        team_name = excluded.team_name,
+                        team_logo = excluded.team_logo,
+                        raw_json = excluded.raw_json,
+                        updated_at = excluded.updated_at
+                    """,
+                    (
+                        coach_id,
+                        team_id,
+                        team.get("name"),
+                        team.get("logo"),
+                        start_date,
+                        end_date,
+                        json.dumps(career_item, ensure_ascii=False),
+                        updated_at,
+                    ),
+                )
+
+            saved_count += 1
+
+        connection.commit()
+
+    return saved_count
+
+
+def count_coaches() -> int:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute("SELECT COUNT(*) AS total FROM coaches")
+        row = cursor.fetchone()
+
+        return int(row["total"])
+
+
+def count_coach_careers() -> int:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute("SELECT COUNT(*) AS total FROM coach_careers")
+        row = cursor.fetchone()
+
+        return int(row["total"])
+
+
+def list_coaches_by_team_id(
+    team_id: int,
+) -> list[dict[str, Any]]:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                c.coach_id,
+                c.name,
+                c.firstname,
+                c.lastname,
+                c.age,
+                c.nationality,
+                c.photo,
+                cc.team_id,
+                cc.team_name,
+                cc.team_logo,
+                cc.start_date,
+                cc.end_date,
+                cc.updated_at
+            FROM coach_careers cc
+            JOIN coaches c ON c.coach_id = cc.coach_id
+            WHERE cc.team_id = ?
+            ORDER BY
+                CASE WHEN cc.end_date = '' THEN 0 ELSE 1 END ASC,
+                cc.start_date DESC
+            """,
+            (team_id,),
+        )
+
+        rows = cursor.fetchall()
+
+    return [dict(row) for row in rows]
+
+
+def list_coach_careers_by_coach_id(
+    coach_id: int,
+) -> list[dict[str, Any]]:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                id,
+                coach_id,
+                team_id,
+                team_name,
+                team_logo,
+                start_date,
+                end_date,
+                updated_at
+            FROM coach_careers
+            WHERE coach_id = ?
+            ORDER BY
+                CASE WHEN end_date = '' THEN 0 ELSE 1 END ASC,
+                start_date DESC
+            """,
+            (coach_id,),
+        )
+
+        rows = cursor.fetchall()
+
+    return [dict(row) for row in rows]
+
+
+def get_coach_by_id(coach_id: int) -> dict[str, Any] | None:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                coach_id,
+                name,
+                firstname,
+                lastname,
+                age,
+                birth_date,
+                birth_place,
+                birth_country,
+                nationality,
+                height,
+                weight,
+                photo,
+                raw_json,
+                updated_at
+            FROM coaches
+            WHERE coach_id = ?
+            """,
+            (coach_id,),
+        )
+
+        row = cursor.fetchone()
+
+    if row is None:
+        return None
+
+    result = dict(row)
+    result["raw"] = json.loads(result.pop("raw_json"))
+
+    return result

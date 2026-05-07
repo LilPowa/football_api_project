@@ -36,6 +36,9 @@ from app.repositories.football_repository import (
     count_sidelined_records,
     save_injuries,
     save_player_sidelined,
+    count_coach_careers,
+    count_coaches,
+    save_coaches,
 )
 from app.services.cached_api_football_client import CachedApiFootballClient
 
@@ -454,4 +457,31 @@ def sync_player_sidelined(
         "source": "cache local" if client.last_cache_hit else "API-Football",
         "saved_count": saved_count,
         "total_sidelined_records": total_sidelined_records,
+    }
+
+def sync_coaches(
+    team_id: int | None = None,
+    coach_id: int | None = None,
+    search: str | None = None,
+    force_refresh: bool = False,
+) -> dict[str, Any]:
+    init_db()
+
+    client = CachedApiFootballClient()
+    api_response = client.get_coaches(
+        team_id=team_id,
+        coach_id=coach_id,
+        search=search,
+        force_refresh=force_refresh,
+    )
+
+    saved_count = save_coaches(api_response)
+    total_coaches = count_coaches()
+    total_coach_careers = count_coach_careers()
+
+    return {
+        "source": "cache local" if client.last_cache_hit else "API-Football",
+        "saved_count": saved_count,
+        "total_coaches": total_coaches,
+        "total_coach_careers": total_coach_careers,
     }

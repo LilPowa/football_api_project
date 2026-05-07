@@ -57,6 +57,11 @@ from app.repositories.football_repository import (
     get_sidelined_record_by_id,
     list_injuries,
     list_player_sidelined_records,
+    count_coach_careers,
+    count_coaches,
+    get_coach_by_id,
+    list_coach_careers_by_coach_id,
+    list_coaches_by_team_id,
 )
 from app.services.sync_service import (
     sync_countries,
@@ -74,6 +79,7 @@ from app.services.sync_service import (
     sync_top_player_statistics,
     sync_injuries,
     sync_player_sidelined,
+    sync_coaches,
 )
 
 APP_VERSION = "0.2.1"
@@ -121,6 +127,7 @@ def render_sidebar() -> None:
         st.metric("Tops joueurs", count_top_player_statistics())
         st.metric("Blessures", count_injuries())
         st.metric("Indisponibilités", count_sidelined_records())
+        st.metric("Coachs", count_coaches())
         st.metric("Cache API", count_cache_entries())
 
         st.markdown("---")
@@ -179,8 +186,8 @@ def render_dashboard_home() -> None:
         },
         {
             "Phase": "Coachs",
-            "État": "À faire",
-            "Contenu": "Profils coachs, coach actuel par équipe, historique",
+            "État": "Terminé",
+            "Contenu": "Profils coachs, coachs par équipe, historique de carrière",
         },
         {
             "Phase": "Transferts / trophées",
@@ -228,9 +235,8 @@ def render_dashboard_home() -> None:
     st.markdown("### Prochaine étape recommandée")
 
     st.info(
-        "Prochaine brique : ajouter les coachs avec `/coachs`, afin de "
-        "récupérer les profils des entraîneurs, le coach actuel d'une équipe "
-        "et l'historique utile pour les fiches équipes."
+        "Prochaine brique : ajouter les transferts avec `/transfers`, "
+        "afin de suivre les mouvements des joueurs entre clubs."
     )
 
 def render_admin_page() -> None:
@@ -395,8 +401,8 @@ def render_metrics() -> None:
     
     row5_col1.metric("Tops joueurs", count_top_player_statistics())
     row5_col2.metric("Blessures", count_injuries())
-    row5_col3.metric("A venir", "A venir")
-    row5_col4.metric("A venir", "A venir")
+    row5_col3.metric("Coachs", count_coaches())
+    row5_col4.metric("Carrières coachs", count_coach_careers())
 
 def render_league_explorer() -> None:
     st.subheader("Exploration des ligues")
@@ -2657,17 +2663,216 @@ def render_injuries_page() -> None:
                 language="json",
             )
 
+def render_coaches_page() -> None:
+    st.subheader("Coachs")
+
+    st.write(
+        "Cette page permet de synchroniser les coachs liés à une équipe "
+        "et de consulter leur historique."
+    )
+
+    leagues = list_leagues_filtered(limit=500)
+
+    if not leagues:
+        st.info("Aucune ligue disponible. Synchronise d'abord les ligues.")
+        return
+
+    league_options = {
+        f"[{league['league_id']}] {league['name']} — {league['country_name']}": league["league_id"]
+        for league in leagues
+    }
+
+    selected_league_label = st.selectbox(
+        "Choisir une ligue",
+        list(league_options.keys()),
+        key="coaches_league_select",
+    )
+
+    selected_league_id = league_options[selected_league_label]
+    seasons = list_league_seasons_by_league_id(selected_league_id)
+
+    if not seasons:
+        st.info("Aucune saison disponible pour cette ligue.")
+        return
+
+    season_options = {
+        f"{season['season_year']} {'(courante)' if season['current'] else ''}": season["season_year"]
+        for season in seasons
+    }
+
+    selected_season_label = st.selectbox(
+        "Choisir une saison pour filtrer les équipes",
+        list(season_options.keys()),
+        key="coaches_season_select",
+    )
+
+    selected_season_year = season_options[selected_season_label]
+
+    teams = list_teams_by_league_season(
+        league_id=selected_league_id,
+        season_year=selected_season_year,
+    )
+
+    if not teams:
+        st.info(
+            "Aucune équipe disponible pour cette ligue/saison. "
+            "Va d'abord dans l'onglet Équipes et synchronise les équipes."
+        )
+        return
+
+    team_options = {
+        f"[{team['team_id']}] {team['name']}": team["team_id"]
+        for team in teams
+    }
+
+    selected_team_label = st.selectbox(
+        "Choisir une équipe",
+        list(team_options.keys()),
+        key="coaches_team_select",
+    )
+
+    selected_team_id = team_options[selected_team_label]
+
+    col_sync, col_force = st.columns(2)
+
+    with col_sync:
+        if st.button("Synchroniser coachs", key="sync_coaches_button"):
+            try:
+                with st.spinner("Synchronisation des coachs..."):
+                    result = sync_coaches(
+                        team_id=selected_team_id,
+                        force_refresh=False,
+                    )
+
+                st.success(
+                    f"Coachs synchronisés depuis : {result['source']} — "
+                    f"{result['saved_count']} coach(s) récupéré(s)."
+                )
+            except RuntimeError as error:
+                st.error("La synchronisation des coachs a échoué.")
+                st.code(str(error))
+
+    with col_force:
+        if st.button("Forcer refresh coachs", key="force_coaches_button"):
+            try:
+                with st.spinner("Refresh coachs depuis API-Football..."):
+                    result = sync_coaches(
+                        team_id=selected_team_id,
+                        force_refresh=True,
+                    )
+
+                st.warning(
+                    f"Coachs rafraîchis depuis : {result['source']} — "
+                    f"{result['saved_count']} coach(s) récupéré(s)."
+                )
+            except RuntimeError as error:
+                st.error("Le refresh des coachs a échoué.")
+                st.code(str(error))
+
+    coaches = list_coaches_by_team_id(selected_team_id)
+
+    st.markdown("### Coachs liés à l'équipe")
+
+    if not coaches:
+        st.info(
+            "Aucun coach en base pour cette équipe. "
+            "Clique sur Synchroniser coachs."
+        )
+        return
+
+    rows = []
+
+    for coach in coaches:
+        rows.append(
+            {
+                "Coach": coach["name"],
+                "Nationalité": coach["nationality"],
+                "Âge": coach["age"],
+                "Début": coach["start_date"],
+                "Fin": coach["end_date"] or "Actuel / non renseigné",
+            }
+        )
+
+    st.dataframe(
+        rows,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    coach_options = {
+        f"{coach['name']} — {coach['start_date'] or 'N/A'}": coach["coach_id"]
+        for coach in coaches
+    }
+
+    selected_coach_label = st.selectbox(
+        "Voir le détail d'un coach",
+        list(coach_options.keys()),
+        key="coach_detail_select",
+    )
+
+    selected_coach_id = coach_options[selected_coach_label]
+    coach_detail = get_coach_by_id(selected_coach_id)
+
+    if not coach_detail:
+        st.warning("Impossible de charger le détail du coach.")
+        return
+
+    col_photo, col_info = st.columns([1, 4])
+
+    with col_photo:
+        if coach_detail.get("photo"):
+            st.image(coach_detail["photo"], width=110)
+
+    with col_info:
+        st.markdown(f"### {coach_detail['name']}")
+        st.write(f"**ID API :** {coach_detail['coach_id']}")
+        st.write(f"**Prénom :** {coach_detail['firstname'] or 'N/A'}")
+        st.write(f"**Nom :** {coach_detail['lastname'] or 'N/A'}")
+        st.write(f"**Âge :** {coach_detail['age'] or 'N/A'}")
+        st.write(f"**Nationalité :** {coach_detail['nationality'] or 'N/A'}")
+        st.write(f"**Naissance :** {coach_detail['birth_date'] or 'N/A'}")
+        st.write(f"**Lieu :** {coach_detail['birth_place'] or 'N/A'}")
+        st.write(f"**Pays :** {coach_detail['birth_country'] or 'N/A'}")
+
+    careers = list_coach_careers_by_coach_id(selected_coach_id)
+
+    st.markdown("### Historique carrière")
+
+    career_rows = []
+
+    for career in careers:
+        career_rows.append(
+            {
+                "Équipe": career["team_name"],
+                "Début": career["start_date"],
+                "Fin": career["end_date"] or "Actuel / non renseigné",
+            }
+        )
+
+    st.dataframe(
+        career_rows,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    with st.expander("JSON brut du coach"):
+        st.code(
+            json.dumps(coach_detail["raw"], indent=2, ensure_ascii=False),
+            language="json",
+        )
+
 def main() -> None:
     initialize_app()
     render_header()
     render_sidebar()
 
-    tab_dashboard, tab_leagues, tab_teams, tab_players, tab_injuries, tab_fixtures, tab_standings, tab_h2h, tab_admin = st.tabs(
+    tab_dashboard, tab_leagues, tab_teams, tab_players, tab_coaches, tab_injuries, tab_fixtures, tab_standings, tab_h2h, tab_admin = st.tabs(
         [
             "🏠 Dashboard",
             "🏆 Ligues",
             "👥 Équipes",
             "🧍 Joueurs",
+            "🧑‍🏫 Coachs",
             "🏥 Blessures",
             "📅 Matchs",
             "📊 Classements",
@@ -2693,6 +2898,9 @@ def main() -> None:
 
         st.divider()
         render_top_players_page()
+    
+    with tab_coaches:
+        render_coaches_page()
     
     with tab_injuries:
         render_injuries_page()
