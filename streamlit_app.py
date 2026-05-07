@@ -148,39 +148,74 @@ def render_dashboard_home() -> None:
 
     roadmap_rows = [
         {
-            "Phase": "Socle",
+            "Phase": "Socle technique",
             "État": "Terminé",
-            "Contenu": "Client API, configuration, cache, SQLite, Streamlit",
+            "Contenu": "Client API, .env, cache SQLite, base locale, Streamlit, sidebar, onglets",
         },
         {
             "Phase": "Données principales",
-            "État": "En cours",
-            "Contenu": "Pays, ligues, saisons, équipes, matchs, classements",
+            "État": "Terminé",
+            "Contenu": "Pays, ligues, saisons, coverage, équipes, matchs, classements",
         },
         {
             "Phase": "Détail des matchs",
-            "État": "En cours",
-            "Contenu": "Statistiques de match, événements, lineups, joueurs",
+            "État": "Terminé",
+            "Contenu": "Statistiques de match, événements, timeline, lineups, titulaires, remplaçants, stats joueurs par match",
+        },
+        {
+            "Phase": "Comparaison équipes",
+            "État": "Terminé",
+            "Contenu": "Head-to-head, historique des confrontations, résumé victoires/nuls/buts",
         },
         {
             "Phase": "Joueurs",
+            "État": "Terminé",
+            "Contenu": "Effectifs, joueurs, statistiques saison, meilleurs buteurs, passeurs, cartons jaunes, cartons rouges",
+        },
+        {
+            "Phase": "Santé / indisponibilités",
+            "État": "Terminé",
+            "Contenu": "Blessures et indisponibilités joueur",
+        },
+        {
+            "Phase": "Coachs",
             "État": "À faire",
-            "Contenu": "Effectifs, top scorers, top assists, cartons",
+            "Contenu": "Profils coachs, coach actuel par équipe, historique",
+        },
+        {
+            "Phase": "Transferts / trophées",
+            "État": "À faire",
+            "Contenu": "Transferts joueurs, historiques, trophées joueurs/coachs",
         },
         {
             "Phase": "Prédictions",
             "État": "À faire",
-            "Contenu": "Predictions API, prédiction maison, comparaison",
+            "Contenu": "Predictions API, comparaison avec données locales, future prédiction maison",
         },
         {
             "Phase": "Cotes",
             "État": "À faire",
-            "Contenu": "Odds, bookmakers, historique local des cotes",
+            "Contenu": "Odds, bookmakers, bets, historique local des cotes",
+        },
+        {
+            "Phase": "Analyse maison",
+            "État": "À faire",
+            "Contenu": "Forme récente, domicile/extérieur, buts moyens, BTTS, over/under, score de probabilité",
+        },
+        {
+            "Phase": "Administration",
+            "État": "À faire",
+            "Contenu": "Logs API, historique de synchronisation, erreurs, quotas, gestion du cache",
+        },
+        {
+            "Phase": "Exports",
+            "État": "À faire",
+            "Contenu": "Exports CSV, Excel, JSON pour matchs, classements, joueurs, stats",
         },
         {
             "Phase": "Industrialisation",
             "État": "À faire",
-            "Contenu": "Logs, exports, tests, Docker, README",
+            "Contenu": "Tests, migrations BDD, README, Docker, déploiement",
         },
     ]
 
@@ -193,8 +228,9 @@ def render_dashboard_home() -> None:
     st.markdown("### Prochaine étape recommandée")
 
     st.info(
-        "Prochaine brique : ajouter les événements d'un match avec "
-        "`/fixtures/events`, afin d'afficher une timeline complète du match."
+        "Prochaine brique : ajouter les coachs avec `/coachs`, afin de "
+        "récupérer les profils des entraîneurs, le coach actuel d'une équipe "
+        "et l'historique utile pour les fiches équipes."
     )
 
 def render_admin_page() -> None:
