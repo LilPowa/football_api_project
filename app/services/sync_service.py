@@ -30,6 +30,8 @@ from app.repositories.football_repository import (
     save_player_squad,
     count_player_season_statistics,
     save_player_season_statistics,
+    count_top_player_statistics,
+    save_top_player_statistics,
 )
 from app.services.cached_api_football_client import CachedApiFootballClient
 
@@ -341,4 +343,56 @@ def sync_players_statistics(
         "source": "cache local" if client.last_cache_hit else "API-Football",
         "saved_count": saved_count,
         "total_player_season_statistics": total_player_season_statistics,
+    }
+
+def sync_top_player_statistics(
+    category: str,
+    league_id: int,
+    season_year: int,
+    force_refresh: bool = False,
+) -> dict[str, Any]:
+    init_db()
+
+    client = CachedApiFootballClient()
+
+    if category == "top_scorers":
+        api_response = client.get_top_scorers(
+            league_id=league_id,
+            season=season_year,
+            force_refresh=force_refresh,
+        )
+    elif category == "top_assists":
+        api_response = client.get_top_assists(
+            league_id=league_id,
+            season=season_year,
+            force_refresh=force_refresh,
+        )
+    elif category == "top_yellow_cards":
+        api_response = client.get_top_yellow_cards(
+            league_id=league_id,
+            season=season_year,
+            force_refresh=force_refresh,
+        )
+    elif category == "top_red_cards":
+        api_response = client.get_top_red_cards(
+            league_id=league_id,
+            season=season_year,
+            force_refresh=force_refresh,
+        )
+    else:
+        raise ValueError(f"Catégorie de top joueur inconnue : {category}")
+
+    saved_count = save_top_player_statistics(
+        api_response=api_response,
+        category=category,
+        league_id=league_id,
+        season_year=season_year,
+    )
+
+    total_top_player_statistics = count_top_player_statistics()
+
+    return {
+        "source": "cache local" if client.last_cache_hit else "API-Football",
+        "saved_count": saved_count,
+        "total_top_player_statistics": total_top_player_statistics,
     }

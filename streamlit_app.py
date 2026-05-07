@@ -48,6 +48,9 @@ from app.repositories.football_repository import (
     count_player_season_statistics,
     get_player_season_statistic_by_id,
     list_player_season_statistics,
+    count_top_player_statistics,
+    get_top_player_statistic_by_id,
+    list_top_player_statistics,
 )
 from app.services.sync_service import (
     sync_countries,
@@ -62,6 +65,7 @@ from app.services.sync_service import (
     sync_teams,
     sync_player_squad,
     sync_players_statistics,
+    sync_top_player_statistics,
 )
 
 APP_VERSION = "0.2.1"
@@ -106,6 +110,7 @@ def render_sidebar() -> None:
         st.metric("Effectifs", count_team_squad_players())
         st.metric("Head-to-head", count_head_to_head_matches())
         st.metric("Stats saison joueurs", count_player_season_statistics())
+        st.metric("Tops joueurs", count_top_player_statistics())
         st.metric("Cache API", count_cache_entries())
 
         st.markdown("---")
@@ -339,6 +344,13 @@ def render_metrics() -> None:
     row4_col2.metric("Head-to-head", count_head_to_head_matches())
     row4_col3.metric("Cache API", count_cache_entries())
     row4_col4.metric("Stats saison joueurs", count_player_season_statistics())
+    
+    row5_col1, row5_col2, row5_col3, row5_col4 = st.columns(4)
+    
+    row5_col1.metric("Tops joueurs", count_top_player_statistics())
+    row5_col2.metric("A venir", "A venir")
+    row5_col3.metric("A venir", "A venir")
+    row5_col4.metric("A venir", "A venir")
 
 def render_league_explorer() -> None:
     st.subheader("Exploration des ligues")
@@ -2156,6 +2168,195 @@ def render_player_season_statistics_page() -> None:
                 language="json",
             )
 
+def render_top_players_page() -> None:
+    st.subheader("Tops joueurs")
+
+    st.write(
+        "Cette section permet d'afficher les meilleurs buteurs, passeurs "
+        "et joueurs les plus sanctionnés d'une ligue sur une saison."
+    )
+
+    category_labels = {
+        "top_scorers": "Meilleurs buteurs",
+        "top_assists": "Meilleurs passeurs",
+        "top_yellow_cards": "Cartons jaunes",
+        "top_red_cards": "Cartons rouges",
+    }
+
+    selected_category_label = st.selectbox(
+        "Catégorie",
+        list(category_labels.values()),
+        key="top_players_category_label",
+    )
+
+    selected_category = {
+        label: key
+        for key, label in category_labels.items()
+    }[selected_category_label]
+
+    leagues = list_leagues_filtered(limit=500)
+
+    if not leagues:
+        st.info("Aucune ligue disponible. Synchronise d'abord les ligues.")
+        return
+
+    league_options = {
+        f"[{league['league_id']}] {league['name']} — {league['country_name']}": league["league_id"]
+        for league in leagues
+    }
+
+    selected_league_label = st.selectbox(
+        "Choisir une ligue",
+        list(league_options.keys()),
+        key="top_players_league_select",
+    )
+
+    selected_league_id = league_options[selected_league_label]
+    seasons = list_league_seasons_by_league_id(selected_league_id)
+
+    if not seasons:
+        st.info("Aucune saison disponible pour cette ligue.")
+        return
+
+    season_options = {
+        f"{season['season_year']} {'(courante)' if season['current'] else ''}": season["season_year"]
+        for season in seasons
+    }
+
+    selected_season_label = st.selectbox(
+        "Choisir une saison",
+        list(season_options.keys()),
+        key="top_players_season_select",
+    )
+
+    selected_season_year = season_options[selected_season_label]
+
+    col_sync, col_force = st.columns(2)
+
+    with col_sync:
+        if st.button("Synchroniser top joueurs", key="sync_top_players_button"):
+            try:
+                with st.spinner("Synchronisation du top joueurs..."):
+                    result = sync_top_player_statistics(
+                        category=selected_category,
+                        league_id=selected_league_id,
+                        season_year=selected_season_year,
+                        force_refresh=False,
+                    )
+
+                st.success(
+                    f"Top joueurs synchronisé depuis : {result['source']} — "
+                    f"{result['saved_count']} joueur(s) récupéré(s)."
+                )
+            except RuntimeError as error:
+                st.error("La synchronisation du top joueurs a échoué.")
+                st.code(str(error))
+
+    with col_force:
+        if st.button("Forcer refresh top joueurs", key="force_top_players_button"):
+            try:
+                with st.spinner("Refresh du top joueurs depuis API-Football..."):
+                    result = sync_top_player_statistics(
+                        category=selected_category,
+                        league_id=selected_league_id,
+                        season_year=selected_season_year,
+                        force_refresh=True,
+                    )
+
+                st.warning(
+                    f"Top joueurs rafraîchi depuis : {result['source']} — "
+                    f"{result['saved_count']} joueur(s) récupéré(s)."
+                )
+            except RuntimeError as error:
+                st.error("Le refresh du top joueurs a échoué.")
+                st.code(str(error))
+
+    players = list_top_player_statistics(
+        category=selected_category,
+        league_id=selected_league_id,
+        season_year=selected_season_year,
+        limit=50,
+    )
+
+    if not players:
+        st.info(
+            "Aucun top joueur en base pour cette sélection. "
+            "Clique sur le bouton de synchronisation."
+        )
+        return
+
+    st.markdown(f"### {selected_category_label}")
+
+    table_rows = []
+
+    for index, player in enumerate(players, start=1):
+        table_rows.append(
+            {
+                "Rang": index,
+                "Joueur": player["player_name"],
+                "Équipe": player["team_name"],
+                "Âge": player["player_age"],
+                "Nationalité": player["player_nationality"],
+                "Poste": player["games_position"],
+                "Matchs": player["games_appearences"],
+                "Minutes": player["games_minutes"],
+                "Note": player["games_rating"],
+                "Buts": player["goals_total"],
+                "Passes déc.": player["goals_assists"],
+                "Jaunes": player["cards_yellow"],
+                "Jaunes+Rouges": player["cards_yellowred"],
+                "Rouges": player["cards_red"],
+            }
+        )
+
+    st.dataframe(
+        table_rows,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    player_options = {
+        f"{player['player_name']} — {player['team_name']}": player["id"]
+        for player in players
+    }
+
+    selected_player_label = st.selectbox(
+        "Voir le détail d'un joueur du top",
+        list(player_options.keys()),
+        key="top_player_detail_select",
+    )
+
+    selected_top_player_id = player_options[selected_player_label]
+    top_player_detail = get_top_player_statistic_by_id(selected_top_player_id)
+
+    if top_player_detail:
+        col_photo, col_info, col_stats = st.columns([1, 3, 3])
+
+        with col_photo:
+            if top_player_detail.get("player_photo"):
+                st.image(top_player_detail["player_photo"], width=100)
+
+        with col_info:
+            st.markdown(f"### {top_player_detail['player_name']}")
+            st.write(f"**Équipe :** {top_player_detail['team_name']}")
+            st.write(f"**Nationalité :** {top_player_detail['player_nationality'] or 'N/A'}")
+            st.write(f"**Âge :** {top_player_detail['player_age'] or 'N/A'}")
+            st.write(f"**Poste :** {top_player_detail['games_position'] or 'N/A'}")
+
+        with col_stats:
+            st.write("**Indicateurs**")
+            st.write(f"Buts : {top_player_detail['goals_total'] or 0}")
+            st.write(f"Passes décisives : {top_player_detail['goals_assists'] or 0}")
+            st.write(f"Cartons jaunes : {top_player_detail['cards_yellow'] or 0}")
+            st.write(f"Cartons rouges : {top_player_detail['cards_red'] or 0}")
+            st.write(f"Note : {top_player_detail['games_rating'] or 'N/A'}")
+
+        with st.expander("JSON brut du joueur"):
+            st.code(
+                json.dumps(top_player_detail["raw"], indent=2, ensure_ascii=False),
+                language="json",
+            )
+
 def main() -> None:
     initialize_app()
     render_header()
@@ -2185,8 +2386,12 @@ def main() -> None:
     
     with tab_players:
         render_players_page()
+        
         st.divider()
         render_player_season_statistics_page()
+
+        st.divider()
+        render_top_players_page()
 
     with tab_fixtures:
         render_fixture_explorer()

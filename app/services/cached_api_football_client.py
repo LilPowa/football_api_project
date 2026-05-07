@@ -251,3 +251,67 @@ class CachedApiFootballClient:
             cache_ttl_seconds=24 * 60 * 60,
             force_refresh=force_refresh,
         )
+        
+    def get_top_scorers(
+        self,
+        league_id: int,
+        season: int,
+        force_refresh: bool = False,
+    ) -> dict[str, Any]:
+        return self.get(
+            endpoint="players/topscorers",
+            params={
+                "league": league_id,
+                "season": season,
+            },
+            cache_ttl_seconds=24 * 60 * 60,
+            force_refresh=force_refresh,
+        )
+
+    def get_top_assists(
+        self,
+        league_id: int,
+        season: int,
+        force_refresh: bool = False,
+    ) -> dict[str, Any]:
+        return self.get(
+            endpoint="players/topassists",
+            params={
+                "league": league_id,
+                "season": season,
+            },
+            cache_ttl_seconds=24 * 60 * 60,
+            force_refresh=force_refresh,
+        )
+
+    def get_top_yellow_cards(
+        self,
+        league_id: int,
+        season: int,
+        force_refresh: bool = False,
+    ) -> dict[str, Any]:
+        return self.get(
+            endpoint="players/topyellowcards",
+            params={
+                "league": league_id,
+                "season": season,
+            },
+            cache_ttl_seconds=24 * 60 * 60,
+            force_refresh=force_refresh,
+        )
+
+    def get_top_red_cards(
+        self,
+        league_id: int,
+        season: int,
+        force_refresh: bool = False,
+    ) -> dict[str, Any]:
+        return self.get(
+            endpoint="players/topredcards",
+            params={
+                "league": league_id,
+                "season": season,
+            },
+            cache_ttl_seconds=24 * 60 * 60,
+            force_refresh=force_refresh,
+        )

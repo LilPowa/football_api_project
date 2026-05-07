@@ -3275,3 +3275,346 @@ def get_player_season_statistic_by_id(
     result["raw"] = json.loads(result.pop("raw_json"))
 
     return result
+
+# -------------------------------------------------------------------
+# Top player statistics
+# -------------------------------------------------------------------
+
+TOP_PLAYER_CATEGORIES = {
+    "top_scorers": "players/topscorers",
+    "top_assists": "players/topassists",
+    "top_yellow_cards": "players/topyellowcards",
+    "top_red_cards": "players/topredcards",
+}
+
+
+def save_top_player_statistics(
+    api_response: dict[str, Any],
+    category: str,
+    league_id: int,
+    season_year: int,
+) -> int:
+    response_items = api_response.get("response", [])
+    updated_at = get_utc_now()
+    endpoint = TOP_PLAYER_CATEGORIES.get(category, category)
+    saved_count = 0
+
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            DELETE FROM top_player_statistics
+            WHERE category = ?
+            AND league_id = ?
+            AND season_year = ?
+            """,
+            (category, league_id, season_year),
+        )
+
+        for item in response_items:
+            player = item.get("player", {})
+            statistics = item.get("statistics", [])
+
+            player_id = player.get("id")
+
+            if player_id is None:
+                continue
+
+            cursor.execute(
+                """
+                INSERT INTO players (
+                    player_id,
+                    name,
+                    age,
+                    photo,
+                    raw_json,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(player_id) DO UPDATE SET
+                    name = excluded.name,
+                    age = excluded.age,
+                    photo = excluded.photo,
+                    raw_json = excluded.raw_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    player_id,
+                    player.get("name"),
+                    player.get("age"),
+                    player.get("photo"),
+                    json.dumps(player, ensure_ascii=False),
+                    updated_at,
+                ),
+            )
+
+            birth = player.get("birth", {})
+
+            if not statistics:
+                continue
+
+            stat = statistics[0]
+
+            team = stat.get("team", {})
+            league = stat.get("league", {})
+            games = stat.get("games", {})
+            goals = stat.get("goals", {})
+            cards = stat.get("cards", {})
+
+            api_team_id = team.get("id")
+            api_league_id = league.get("id") or league_id
+            api_season = league.get("season") or season_year
+
+            cursor.execute(
+                """
+                INSERT INTO top_player_statistics (
+                    category,
+                    endpoint,
+
+                    player_id,
+                    player_name,
+                    player_firstname,
+                    player_lastname,
+                    player_age,
+                    player_birth_date,
+                    player_birth_place,
+                    player_birth_country,
+                    player_nationality,
+                    player_height,
+                    player_weight,
+                    player_injured,
+                    player_photo,
+
+                    team_id,
+                    team_name,
+                    team_logo,
+
+                    league_id,
+                    league_name,
+                    league_country,
+                    league_logo,
+                    league_flag,
+                    season_year,
+
+                    games_appearences,
+                    games_lineups,
+                    games_minutes,
+                    games_number,
+                    games_position,
+                    games_rating,
+                    games_captain,
+
+                    goals_total,
+                    goals_assists,
+
+                    cards_yellow,
+                    cards_yellowred,
+                    cards_red,
+
+                    raw_json,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(category, player_id, team_id, league_id, season_year) DO UPDATE SET
+                    endpoint = excluded.endpoint,
+
+                    player_name = excluded.player_name,
+                    player_firstname = excluded.player_firstname,
+                    player_lastname = excluded.player_lastname,
+                    player_age = excluded.player_age,
+                    player_birth_date = excluded.player_birth_date,
+                    player_birth_place = excluded.player_birth_place,
+                    player_birth_country = excluded.player_birth_country,
+                    player_nationality = excluded.player_nationality,
+                    player_height = excluded.player_height,
+                    player_weight = excluded.player_weight,
+                    player_injured = excluded.player_injured,
+                    player_photo = excluded.player_photo,
+
+                    team_name = excluded.team_name,
+                    team_logo = excluded.team_logo,
+
+                    league_name = excluded.league_name,
+                    league_country = excluded.league_country,
+                    league_logo = excluded.league_logo,
+                    league_flag = excluded.league_flag,
+
+                    games_appearences = excluded.games_appearences,
+                    games_lineups = excluded.games_lineups,
+                    games_minutes = excluded.games_minutes,
+                    games_number = excluded.games_number,
+                    games_position = excluded.games_position,
+                    games_rating = excluded.games_rating,
+                    games_captain = excluded.games_captain,
+
+                    goals_total = excluded.goals_total,
+                    goals_assists = excluded.goals_assists,
+
+                    cards_yellow = excluded.cards_yellow,
+                    cards_yellowred = excluded.cards_yellowred,
+                    cards_red = excluded.cards_red,
+
+                    raw_json = excluded.raw_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    category,
+                    endpoint,
+
+                    player_id,
+                    player.get("name"),
+                    player.get("firstname"),
+                    player.get("lastname"),
+                    player.get("age"),
+                    birth.get("date"),
+                    birth.get("place"),
+                    birth.get("country"),
+                    player.get("nationality"),
+                    player.get("height"),
+                    player.get("weight"),
+                    1 if player.get("injured") else 0 if player.get("injured") is False else None,
+                    player.get("photo"),
+
+                    api_team_id,
+                    team.get("name"),
+                    team.get("logo"),
+
+                    api_league_id,
+                    league.get("name"),
+                    league.get("country"),
+                    league.get("logo"),
+                    league.get("flag"),
+                    api_season,
+
+                    games.get("appearences"),
+                    games.get("lineups"),
+                    games.get("minutes"),
+                    games.get("number"),
+                    games.get("position"),
+                    games.get("rating"),
+                    1 if games.get("captain") else 0 if games.get("captain") is False else None,
+
+                    goals.get("total"),
+                    goals.get("assists"),
+
+                    cards.get("yellow"),
+                    cards.get("yellowred"),
+                    cards.get("red"),
+
+                    json.dumps(item, ensure_ascii=False),
+                    updated_at,
+                ),
+            )
+
+            saved_count += 1
+
+        connection.commit()
+
+    return saved_count
+
+
+def count_top_player_statistics() -> int:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute("SELECT COUNT(*) AS total FROM top_player_statistics")
+        row = cursor.fetchone()
+
+        return int(row["total"])
+
+
+def list_top_player_statistics(
+    category: str,
+    league_id: int,
+    season_year: int,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    order_by_by_category = {
+        "top_scorers": "goals_total DESC, goals_assists DESC",
+        "top_assists": "goals_assists DESC, goals_total DESC",
+        "top_yellow_cards": "cards_yellow DESC, cards_yellowred DESC",
+        "top_red_cards": "cards_red DESC, cards_yellowred DESC",
+    }
+
+    order_by = order_by_by_category.get(
+        category,
+        "goals_total DESC, goals_assists DESC"
+    )
+
+    query = f"""
+        SELECT
+            id,
+            category,
+            endpoint,
+
+            player_id,
+            player_name,
+            player_age,
+            player_nationality,
+            player_photo,
+
+            team_id,
+            team_name,
+            team_logo,
+
+            league_id,
+            league_name,
+            season_year,
+
+            games_appearences,
+            games_minutes,
+            games_position,
+            games_rating,
+
+            goals_total,
+            goals_assists,
+
+            cards_yellow,
+            cards_yellowred,
+            cards_red,
+
+            updated_at
+        FROM top_player_statistics
+        WHERE category = ?
+        AND league_id = ?
+        AND season_year = ?
+        ORDER BY {order_by}
+        LIMIT ?
+    """
+
+    with get_connection() as connection:
+        cursor = connection.cursor()
+        cursor.execute(
+            query,
+            (category, league_id, season_year, limit),
+        )
+        rows = cursor.fetchall()
+
+    return [dict(row) for row in rows]
+
+
+def get_top_player_statistic_by_id(
+    top_player_statistic_id: int,
+) -> dict[str, Any] | None:
+    with get_connection() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT *
+            FROM top_player_statistics
+            WHERE id = ?
+            """,
+            (top_player_statistic_id,),
+        )
+
+        row = cursor.fetchone()
+
+    if row is None:
+        return None
+
+    result = dict(row)
+    result["raw"] = json.loads(result.pop("raw_json"))
+
+    return result

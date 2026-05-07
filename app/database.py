@@ -539,5 +539,64 @@ def init_db() -> None:
             )
             """
         )
+        
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS top_player_statistics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+                category TEXT NOT NULL,
+                endpoint TEXT NOT NULL,
+
+                player_id INTEGER NOT NULL,
+                player_name TEXT,
+                player_firstname TEXT,
+                player_lastname TEXT,
+                player_age INTEGER,
+                player_birth_date TEXT,
+                player_birth_place TEXT,
+                player_birth_country TEXT,
+                player_nationality TEXT,
+                player_height TEXT,
+                player_weight TEXT,
+                player_injured INTEGER,
+                player_photo TEXT,
+
+                team_id INTEGER,
+                team_name TEXT,
+                team_logo TEXT,
+
+                league_id INTEGER,
+                league_name TEXT,
+                league_country TEXT,
+                league_logo TEXT,
+                league_flag TEXT,
+                season_year INTEGER,
+
+                games_appearences INTEGER,
+                games_lineups INTEGER,
+                games_minutes INTEGER,
+                games_number INTEGER,
+                games_position TEXT,
+                games_rating TEXT,
+                games_captain INTEGER,
+
+                goals_total INTEGER,
+                goals_assists INTEGER,
+
+                cards_yellow INTEGER,
+                cards_yellowred INTEGER,
+                cards_red INTEGER,
+
+                raw_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+
+                UNIQUE(category, player_id, team_id, league_id, season_year),
+                FOREIGN KEY (player_id) REFERENCES players(player_id),
+                FOREIGN KEY (team_id) REFERENCES teams(team_id),
+                FOREIGN KEY (league_id) REFERENCES leagues(league_id)
+            )
+            """
+        )
                 
         connection.commit()
